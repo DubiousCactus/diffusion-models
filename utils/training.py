@@ -12,6 +12,7 @@ function, visualization code, etc.)
 
 from typing import List, Tuple, Union
 
+import matplotlib.pyplot as plt
 import torch
 
 import conf.project as project_conf
@@ -23,7 +24,14 @@ def visualize_model_predictions(
 ) -> None:
     x, y = to_cuda_(batch)  # type: ignore
     if not project_conf.HEADLESS:
-        raise NotImplementedError("Visualization is not implemented.")
+        x_hat = model.generate(10)
+        # x_hat = x[:10]
+        fig, axs = plt.subplots(1, 10)
+        for i in range(10):
+            axs[i].imshow(x_hat[i].swapaxes(0, 2).swapaxes(0, 1).cpu().numpy())
+            axs[i].axis("off")
+        plt.show()
+
     if project_conf.USE_WANDB:
         # TODO: Log a few predictions and the ground truth to wandb.
         # wandb.log({"pointcloud": wandb.Object3D(ptcld)}, step=step)

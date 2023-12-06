@@ -26,9 +26,10 @@ from torch.utils.data import DataLoader
 from unique_names_generator import get_random_name
 from unique_names_generator.data import ADJECTIVES, NAMES
 
-from dataset.example import ExampleDataset
+from dataset.celeba import CelebADataset
+from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
-from model.example import ExampleModel
+from model.diffusion_model import DiffusionModel, MLPBackboneModel
 from src.base_tester import BaseTester
 from src.base_trainer import BaseTrainer
 
@@ -53,38 +54,35 @@ pbuilds = make_custom_builds_fn(zen_partial=True, populate_full_signature=False)
 
 # Dataclasses are a great and simple way to define a base config group with default values.
 @dataclass
-class ExampleDatasetConf:
+class ImageDatasetConf:
     dataset_name: str = "image_dataset"
     dataset_root: str = "data/a"
     tiny: bool = False
     normalize: bool = True
     augment: bool = False
     debug: bool = False
-    img_dim: int = ExampleDataset.IMG_SIZE[0]
+    img_dim: int = CelebADataset.IMG_SIZE[0]
 
 
 # Pre-set the group for store's dataset entries
 dataset_store = store(group="dataset")
 dataset_store(
-    pbuilds(ExampleDataset, builds_bases=(ExampleDatasetConf,)), name="image_a"
-)
-
-dataset_store(
     pbuilds(
-        ExampleDataset,
-        builds_bases=(ExampleDatasetConf,),
-        dataset_root="data/b",
-        img_dim=64,
+        CelebADataset,
+        builds_bases=(ImageDatasetConf,),
+        dataset_name="celeba",
+        img_dim=CelebADataset.IMG_SIZE[0],
     ),
-    name="image_b",
+    name="celeba",
 )
 dataset_store(
     pbuilds(
-        ExampleDataset,
-        builds_bases=(ExampleDatasetConf,),
-        tiny=True,
+        MNISTDataset,
+        builds_bases=(ImageDatasetConf,),
+        dataset_name="mnist",
+        img_dim=MNISTDataset.IMG_SIZE[0],
     ),
-    name="image_a_tiny",
+    name="mnist",
 )
 
 " ================== Dataloader & sampler ================== "
@@ -113,24 +111,19 @@ model_store = store(group="model")
 # Not that encoder_input_dim depend on dataset.img_dim, so we need to use a partial to set them in
 # the launch_experiment function.
 model_store(
-    pbuilds(
-        ExampleModel,
-        encoder_dim=128,
-        decoder_dim=64,
-        latent_dim=32,
-        decoder_output_dim=8,
-    ),
-    name="model_a",
+    pbuilds(MLPBackboneModel, latent_dim=64, time_dim=16, input_shape=MISSING),
+    name="mlp_backend",
 )
 model_store(
     pbuilds(
-        ExampleModel,
-        encoder_dim=256,
-        decoder_dim=128,
-        latent_dim=64,
-        decoder_output_dim=8,
+        DiffusionModel,
+        # backbone=MISSING,
+        timesteps=1000,
+        beta_1=10e-4,
+        beta_T=0.02,
+        input_shape=MISSING,
     ),
-    name="model_b",
+    name="diffusion_model",
 )
 
 
@@ -197,8 +190,7 @@ class RunConfig:
     viz_every: int = 10
     viz_train_every: int = 0
     viz_num_samples: int = 5
-    load_from_path: Optional[str] = None
-    load_from_run: Optional[str] = None
+    load_from: Optional[str] = None
     training_mode: bool = True
 
 
@@ -246,22 +238,11 @@ experiment_store(
     make_config(
         hydra_defaults=[
             "_self_",
-            {"override /model": "model_a"},
-            {"override /dataset": "image_a"},
+            {"override /model": "diffusion_model"},
+            {"override /dataset": "celeba"},
         ],
         # training=dict(epochs=100),
         bases=(Experiment,),
     ),
-    name="exp_a",
-)
-experiment_store(
-    make_config(
-        hydra_defaults=[
-            "_self_",
-            {"override /model": "model_b"},
-            {"override /dataset": "image_b"},
-        ],
-        bases=(Experiment,),
-    ),
-    name="exp_b",
+    name="image_diffusion",
 )

@@ -28,14 +28,26 @@ class ImageDataset(BaseDataset, abc.ABC):
 
     def __init__(
         self,
+        dataset_name: str,
         dataset_root: str,
         split: str,
         img_size: Optional[tuple] = None,
         augment: bool = False,
         normalize: bool = False,
+        debug: bool = False,
         tiny: bool = False,
+        seed: Optional[int] = None,
     ) -> None:
-        super().__init__(dataset_root, augment, normalize, split, tiny=tiny)
+        super().__init__(
+            dataset_root,
+            augment,
+            normalize,
+            split,
+            dataset_name,
+            tiny=tiny,
+            debug=debug,
+            seed=seed,
+        )
         self._img_size = self.IMG_SIZE if img_size is None else img_size
         self._transforms = transforms.Compose(
             [

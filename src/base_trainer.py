@@ -91,11 +91,11 @@ class BaseTrainer:
             torch.Tensor: The loss for the batch.
             Dict[str, torch.Tensor]: The loss components for the batch.
         """
-        # x, y = batch
-        # y_hat = self._model(x)
-        # loss, loss_components = torch.nn.functional.mse_loss(y_hat, y)
-        # return loss, loss_components
-        raise NotImplementedError
+        x, _ = batch
+        y_hat, y = self._model(x)
+        loss, loss_components = torch.nn.functional.mse_loss(y_hat, y), {}
+        return loss, loss_components
+        # raise NotImplementedError
 
     def _train_epoch(
         self, description: str, visualize: bool, epoch: int, last_val_loss: float
@@ -115,7 +115,7 @@ class BaseTrainer:
         color_code = project_conf.ANSI_COLORS[project_conf.Theme.TRAINING.value]
         has_visualized = 0
         " ==================== Training loop for one epoch ==================== "
-        for batch in self._train_loader:
+        for i, batch in enumerate(self._train_loader):
             if (
                 not self._running
                 and project_conf.SIGINT_BEHAVIOR

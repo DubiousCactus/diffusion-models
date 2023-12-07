@@ -111,7 +111,7 @@ model_store = store(group="model")
 # Not that encoder_input_dim depend on dataset.img_dim, so we need to use a partial to set them in
 # the launch_experiment function.
 model_store(
-    pbuilds(MLPBackboneModel, latent_dim=64, time_dim=16, input_shape=MISSING),
+    pbuilds(MLPBackboneModel, latent_dim=64, input_shape=MISSING),
     name="mlp_backend",
 )
 model_store(

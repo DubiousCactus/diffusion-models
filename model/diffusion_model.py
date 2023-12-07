@@ -16,57 +16,110 @@ from typing import Tuple
 import torch
 
 
+class TimeEncoder(torch.nn.Module):
+    def __init__(self, time_steps: int, input_shape: Tuple[int]) -> None:
+        super().__init__()
+        model_dim = reduce(lambda x, y: x * y, input_shape)
+        self.time_steps = time_steps
+        # Little trick to simplify computation:
+        constants = torch.exp(
+            -torch.arange(0, model_dim, 2)
+            * (torch.log(torch.tensor(10000.0)) / model_dim)
+        )
+        # assert torch.allclose(
+        # constants,
+        # torch.tensor(
+        # [10000**((2*i)/model_dim) for i in range(time_steps//2)]
+        # ),
+        # ), "Oops we computed it wrong!"
+        self.time_embeddings = torch.nn.Parameter(
+            torch.zeros(time_steps, model_dim), requires_grad=False
+        )
+        self.time_embeddings[:, ::2] = torch.sin(
+            torch.arange(0, time_steps).unsqueeze(1).repeat(1, model_dim // 2)
+            * constants
+        )
+        self.time_embeddings[:, 1::2] = torch.cos(
+            torch.arange(0, time_steps).unsqueeze(1).repeat(1, model_dim // 2)
+            * constants
+        )
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        assert type(t) == torch.Tensor
+        assert x.shape[0] == t.shape[0], "Batch size must be the same for x and t"
+        assert len(t.shape) == 2, "t must be (B, 1)"
+        return x + self.time_embeddings[t].squeeze()
+
+
 class MLPBackboneModel(torch.nn.Module):
     def __init__(
-        self, input_shape: Tuple[int], latent_dim: int, time_dim: int, time_steps: int
+        self, input_shape: Tuple[int], latent_dim: int, time_encoder: torch.nn.Module
     ):
         super().__init__()
         flat_shape = reduce(lambda x, y: x * y, input_shape)
-        self.time_steps = time_steps
-        self.time_embedder = torch.nn.Sequential(
-            torch.nn.Linear(1, time_dim // 2),
-            torch.nn.BatchNorm1d(time_dim // 2),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(time_dim // 2, time_dim),
+        self.time_encoder = time_encoder
+        self.predictor = torch.nn.Sequential(
+            torch.nn.Linear(flat_shape, 1024),
+            torch.nn.BatchNorm1d(1024),
+            torch.nn.ReLU(),
+            torch.nn.Linear(1024, 1024),
+            torch.nn.BatchNorm1d(1024),
+            torch.nn.ReLU(),
+            torch.nn.Linear(1024, 1024),
+            torch.nn.BatchNorm1d(1024),
+            torch.nn.ReLU(),
+            torch.nn.Linear(1024, flat_shape),
         )
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        input_shape = x.shape
+        x = x.view(x.shape[0], -1)
+        x = self.time_encoder(x, t)
+        x = self.predictor(x)
+        return x.view(input_shape)
+
+
+class MLPUNetBackboneModel(torch.nn.Module):
+    def __init__(
+        self, input_shape: Tuple[int], latent_dim: int, time_encoder: torch.nn.Module
+    ):
+        super().__init__()
+        flat_shape = reduce(lambda x, y: x * y, input_shape)
+        self.time_encoder = time_encoder
         self.encoder = torch.nn.ModuleList(
             [
-                torch.nn.Linear(flat_shape + time_dim, 1024),
-                torch.nn.Linear(1024 + time_dim, 512),
-                torch.nn.Linear(512 + time_dim, 256),
+                torch.nn.Linear(flat_shape, 512),
+                torch.nn.Linear(512, 256),
                 torch.nn.Linear(256, latent_dim),
             ]
         )
         self.encoder_bn = torch.nn.ModuleList(
             [
-                torch.nn.BatchNorm1d(1024),
                 torch.nn.BatchNorm1d(512),
                 torch.nn.BatchNorm1d(256),
             ]
         )
         self.decoder = torch.nn.ModuleList(
             [
-                torch.nn.Linear(latent_dim + time_dim, 256),
-                torch.nn.Linear(256 + time_dim, 512),
-                torch.nn.Linear(512 + time_dim, 1024),
-                torch.nn.Linear(1024, flat_shape),
+                torch.nn.Linear(latent_dim, 256),
+                torch.nn.Linear(256, 512),
+                torch.nn.Linear(512, flat_shape),
             ]
         )
         self.decoder_bn = torch.nn.ModuleList(
             [
                 torch.nn.BatchNorm1d(256),
                 torch.nn.BatchNorm1d(512),
-                torch.nn.BatchNorm1d(1024),
             ]
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         input_shape = x.shape
-        time_embedding = self.time_embedder(t.float() / self.time_steps)
         x = x.view(x.shape[0], -1)
+        x = self.time_encoder(x, t)
         for i, (layer, bn) in enumerate(zip(self.encoder, self.encoder_bn + [None])):
             if i < (len(self.encoder) - 1):
-                x = torch.cat((x, time_embedding), dim=-1)
+                pass  # TODO: Skip connection
             x = layer(x)
             if i < (len(self.encoder) - 1):
                 x = bn(x)
@@ -74,7 +127,7 @@ class MLPBackboneModel(torch.nn.Module):
 
         for i, (layer, bn) in enumerate(zip(self.decoder, self.decoder_bn + [None])):
             if i < (len(self.encoder) - 1):
-                x = torch.cat((x, time_embedding), dim=-1)
+                pass  # TODO: Skip connection
             x = layer(x)
             if i < (len(self.encoder) - 1):
                 x = bn(x)
@@ -93,7 +146,9 @@ class DiffusionModel(torch.nn.Module):
         beta_T: float,
     ):
         super().__init__()
-        self.backbone = MLPBackboneModel(input_shape, 128, 32, timesteps)
+        self.backbone = MLPBackboneModel(
+            input_shape, 128, TimeEncoder(timesteps, input_shape)
+        )
         self.timesteps = timesteps
         self.beta = torch.nn.Parameter(
             torch.linspace(beta_1, beta_T, timesteps), requires_grad=False

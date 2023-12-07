@@ -152,6 +152,15 @@ opt_store(
     name="sgd",
 )
 
+opt_store(
+    pbuilds(
+        torch.optim.SGD,
+        builds_bases=(Optimizer,),
+        momentum=0.9,
+        nesterov=True,
+    ),
+    name="sgd-momentum",
+)
 
 " ================== Scheduler ================== "
 sched_store = store(group="scheduler")

@@ -28,7 +28,7 @@ def visualize_model_predictions(
         # TODO: Parameterize this!
         x_hat = x_hat * 0.3081 + 0.1307  # (MNIST std and mean)
         # Clip to [0, 1]:
-        x_hat = torch.clamp(x_hat, 0, 1)
+        # x_hat = torch.clamp(x_hat, 0, 1)
         fig, axs = plt.subplots(1, 10)
         for i in range(10):
             axs[i].imshow(x_hat[i].swapaxes(0, 2).swapaxes(0, 1).cpu().numpy())

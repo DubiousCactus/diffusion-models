@@ -15,6 +15,7 @@ from typing import Optional, Tuple, Union
 import numpy as np
 import torch
 from torchvision.datasets import MNIST
+from torchvision.transforms import transforms
 
 from dataset.base.image import ImageDataset
 
@@ -45,6 +46,7 @@ class MNISTDataset(ImageDataset):
             tiny,
             seed=seed,
         )
+        self._normalization = transforms.Normalize(0.1307, 0.3081)
 
     def _load(
         self,

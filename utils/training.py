@@ -25,7 +25,10 @@ def visualize_model_predictions(
     x, y = to_cuda_(batch)  # type: ignore
     if not project_conf.HEADLESS:
         x_hat = model.generate(10)
-        # x_hat = x[:10]
+        # TODO: Parameterize this!
+        x_hat = x_hat * 0.3081 + 0.1307  # (MNIST std and mean)
+        # Clip to [0, 1]:
+        x_hat = torch.clamp(x_hat, 0, 1)
         fig, axs = plt.subplots(1, 10)
         for i in range(10):
             axs[i].imshow(x_hat[i].swapaxes(0, 2).swapaxes(0, 1).cpu().numpy())
@@ -35,4 +38,5 @@ def visualize_model_predictions(
     if project_conf.USE_WANDB:
         # TODO: Log a few predictions and the ground truth to wandb.
         # wandb.log({"pointcloud": wandb.Object3D(ptcld)}, step=step)
-        raise NotImplementedError("Visualization is not implemented for wandb.")
+        # raise NotImplementedError("Visualization is not implemented for wandb.")
+        pass

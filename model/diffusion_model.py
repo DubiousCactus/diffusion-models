@@ -16,7 +16,7 @@ from typing import Tuple
 import torch
 
 
-class TimeEncoder(torch.nn.Module):
+class SinusoidalTimeEncoder(torch.nn.Module):
     def __init__(self, time_steps: int, input_shape: Tuple[int]) -> None:
         super().__init__()
         model_dim = reduce(lambda x, y: x * y, input_shape)
@@ -69,6 +69,7 @@ class MLPBackboneModel(torch.nn.Module):
             torch.nn.BatchNorm1d(1024),
             torch.nn.ReLU(),
             torch.nn.Linear(1024, flat_shape),
+            torch.nn.Tanh(), # We don't need to predict noise samples beyond [-1, 1]
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -147,7 +148,7 @@ class DiffusionModel(torch.nn.Module):
     ):
         super().__init__()
         self.backbone = MLPBackboneModel(
-            input_shape, 128, TimeEncoder(timesteps, input_shape)
+            input_shape, 128, SinusoidalTimeEncoder(timesteps, input_shape)
         )
         self.timesteps = timesteps
         self.beta = torch.nn.Parameter(
@@ -173,9 +174,9 @@ class DiffusionModel(torch.nn.Module):
             self._input_shape = x.shape[1:]
         # ===== Training =========
         # 1. Sample timestep t with shape (B, 1)
-        t = torch.randint(1, self.timesteps, (x.shape[0], 1)).to(x.device)
+        t = torch.randint(0, self.timesteps, (x.shape[0], 1)).to(x.device).requires_grad_(False)
         # 2. Sample the noise with shape x.shape
-        eps = torch.randn_like(x).to(x.device)
+        eps = torch.randn_like(x).to(x.device).requires_grad_(False)
         # 3. Diffuse the image
         batched_alpha = self.alpha[t]
 
@@ -200,25 +201,30 @@ class DiffusionModel(torch.nn.Module):
         return eps_hat, eps
 
     def generate(self, n: int) -> torch.Tensor:
-        device = next(self.parameters()).device
-        z_current = torch.randn(n, *self._input_shape).to(device)
-        for t in range(self.timesteps - 1, 0, -1):  # Reversed from T to 1
+        assert self._input_shape is not None, "Must call forward first"
+        with torch.no_grad():
+            device = next(self.parameters()).device
+            z_current = torch.randn(n, *self._input_shape).to(device)
+            for t in range(self.timesteps - 1, 0, -1):  # Reversed from T to 1
+                eps_hat = self.backbone(
+                    z_current, torch.tensor(t).view(1, 1).repeat(n, 1).to(device)
+                )
+                z_prev_hat = (
+                    (1 / (torch.sqrt(1 - self.beta[t]))) * z_current
+                    - (
+                        self.beta[t] / (torch.sqrt(1 - self.alpha[t]) * torch.sqrt(1 - self.beta[t]))
+                    ) * eps_hat
+                )
+                eps = torch.randn_like(z_current)
+                z_current = z_prev_hat + eps * self.sigma[t]
+            # Now for z_0:
             eps_hat = self.backbone(
-                z_current, torch.tensor(t).view(1, 1).repeat(n, 1).to(device)
+                z_current, torch.tensor(0).view(1, 1).repeat(n, 1).to(device)
             )
-            z_prev_hat = (
-                1 / (torch.sqrt(1 - self.beta[t])) * z_current
-                - self.beta[t]
-                / (torch.sqrt(1 - self.alpha[t] * torch.sqrt(1 - self.beta[t])))
-                * eps_hat
+            x_hat = (
+                (1 / (torch.sqrt(1 - self.beta[0]))) * z_current
+                - (
+                    self.beta[0] / (torch.sqrt(1 - self.alpha[0]) * torch.sqrt(1 - self.beta[0]))
+                ) * eps_hat
             )
-            eps = torch.randn_like(z_current)
-            z_current = z_prev_hat + eps * self.sigma[t]
-        # Now for z_0:
-        x_hat = (
-            1 / (torch.sqrt(1 - self.beta[t])) * z_current
-            - self.beta[t]
-            / (torch.sqrt(1 - self.alpha[t] * torch.sqrt(1 - self.beta[t])))
-            * eps_hat
-        )
-        return x_hat.view(n, *self._input_shape)
+            return x_hat.view(n, *self._input_shape)

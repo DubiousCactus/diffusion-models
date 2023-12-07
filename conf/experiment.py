@@ -239,9 +239,10 @@ experiment_store(
         hydra_defaults=[
             "_self_",
             {"override /model": "diffusion_model"},
-            {"override /dataset": "celeba"},
+            {"override /dataset": "mnist"},
         ],
-        # training=dict(epochs=100),
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=128),
         bases=(Experiment,),
     ),
     name="image_diffusion",

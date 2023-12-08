@@ -111,7 +111,7 @@ model_store = store(group="model")
 # Not that encoder_input_dim depend on dataset.img_dim, so we need to use a partial to set them in
 # the launch_experiment function.
 model_store(
-    pbuilds(MLPBackboneModel, latent_dim=64, input_shape=MISSING),
+    pbuilds(MLPBackboneModel, input_shape=MISSING),
     name="mlp_backend",
 )
 model_store(
@@ -122,6 +122,7 @@ model_store(
         beta_1=10e-4,
         beta_T=0.02,
         input_shape=MISSING,
+        time_embed_dim=512,
     ),
     name="diffusion_model",
 )
@@ -250,9 +251,10 @@ experiment_store(
             {"override /model": "diffusion_model"},
             {"override /dataset": "mnist"},
         ],
+        model=dict(input_shape=(28, 28, 1), time_embed_dim=512),
         run=dict(epochs=1000, viz_every=10),
-        data_loader=dict(batch_size=128),
+        data_loader=dict(batch_size=512),
         bases=(Experiment,),
     ),
-    name="image_diffusion",
+    name="mnist",
 )

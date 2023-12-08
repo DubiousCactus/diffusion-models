@@ -15,125 +15,142 @@ from typing import Tuple
 
 import torch
 
-
-class SinusoidalTimeEncoder(torch.nn.Module):
-    def __init__(self, time_steps: int, input_shape: Tuple[int]) -> None:
-        super().__init__()
-        model_dim = reduce(lambda x, y: x * y, input_shape)
-        self.time_steps = time_steps
-        # Little trick to simplify computation:
-        constants = torch.exp(
-            -torch.arange(0, model_dim, 2)
-            * (torch.log(torch.tensor(10000.0)) / model_dim)
-        )
-        # assert torch.allclose(
-        # constants,
-        # torch.tensor(
-        # [10000**((2*i)/model_dim) for i in range(time_steps//2)]
-        # ),
-        # ), "Oops we computed it wrong!"
-        self.time_embeddings = torch.nn.Parameter(
-            torch.zeros(time_steps, model_dim), requires_grad=False
-        )
-        self.time_embeddings[:, ::2] = torch.sin(
-            torch.arange(0, time_steps).unsqueeze(1).repeat(1, model_dim // 2)
-            * constants
-        )
-        self.time_embeddings[:, 1::2] = torch.cos(
-            torch.arange(0, time_steps).unsqueeze(1).repeat(1, model_dim // 2)
-            * constants
-        )
-
-    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        assert type(t) == torch.Tensor
-        assert x.shape[0] == t.shape[0], "Batch size must be the same for x and t"
-        assert len(t.shape) == 2, "t must be (B, 1)"
-        return x + self.time_embeddings[t].squeeze()
+from model.time_encoding import SinusoidalTimeEncoder
 
 
 class MLPBackboneModel(torch.nn.Module):
     def __init__(
-        self, input_shape: Tuple[int], latent_dim: int, time_encoder: torch.nn.Module
+        self,
+        input_shape: Tuple[int],
+        time_encoder: torch.nn.Module,
+        time_dim: int,
     ):
         super().__init__()
         flat_shape = reduce(lambda x, y: x * y, input_shape)
         self.time_encoder = time_encoder
-        self.predictor = torch.nn.Sequential(
-            torch.nn.Linear(flat_shape, 2048),
-            torch.nn.BatchNorm1d(2048),
+        self.time_mlp = torch.nn.Sequential(
+            torch.nn.Linear(time_dim, time_dim),
+            torch.nn.BatchNorm1d(time_dim),
+            # torch.nn.GroupNorm(32, time_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(2048, 2048),
-            torch.nn.BatchNorm1d(2048),
-            torch.nn.ReLU(),
-            torch.nn.Linear(2048, 2048),
-            torch.nn.BatchNorm1d(2048),
-            torch.nn.ReLU(),
-            torch.nn.Linear(2048, flat_shape),
-            torch.nn.Tanh(),  # We don't need to predict noise samples beyond [-1, 1]
+            torch.nn.Linear(time_dim, time_dim),
+            torch.nn.BatchNorm1d(time_dim),
+            # torch.nn.GroupNorm(32, time_dim),
+            torch.nn.Tanh(),
         )
+        self.layers = torch.nn.ModuleList(
+            [torch.nn.Linear(flat_shape, 2048)]
+            + [torch.nn.Linear(2048, 2048)] * 4
+            + [torch.nn.Linear(2048, flat_shape)]
+        )
+        # self.bn = torch.nn.ModuleList([torch.nn.BatchNorm1d(2048)] * 3)
+        self.bn = torch.nn.ModuleList([torch.nn.GroupNorm(32, 2048)] * 5)
+        self.input_time_proj = torch.nn.Linear(time_dim, flat_shape)
+        self.time_proj = torch.nn.ModuleList([torch.nn.Linear(time_dim, 2048)] * 5)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         input_shape = x.shape
         x = x.view(x.shape[0], -1)
-        x = self.time_encoder(x, t)
-        x = self.predictor(x)
+        # time_embed = self.time_mlp(self.time_encoder(t))
+        time_embed = self.time_encoder(t)
+        # x += self.input_time_proj(time_embed)
+        for i, (layer, bn, time_proj) in enumerate(
+            zip(self.layers, self.bn, self.time_proj)
+        ):
+            _x = x
+            x = layer(x) + time_proj(time_embed)
+            x = bn(x)
+            if i > 0 and i % 2 == 0:
+                x += _x  # Residual connection
+            x = torch.nn.functional.leaky_relu(x)
+        x = torch.tanh(self.layers[-1](x))
         return x.view(input_shape)
 
 
 class MLPUNetBackboneModel(torch.nn.Module):
     def __init__(
-        self, input_shape: Tuple[int], latent_dim: int, time_encoder: torch.nn.Module
+        self,
+        input_shape: Tuple[int],
+        time_encoder: torch.nn.Module,
+        time_dim: int,
     ):
         super().__init__()
         flat_shape = reduce(lambda x, y: x * y, input_shape)
         self.time_encoder = time_encoder
-        self.encoder = torch.nn.ModuleList(
+        self.time_mlp = torch.nn.Sequential(
+            torch.nn.Linear(time_dim, time_dim),
+            torch.nn.BatchNorm1d(time_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(time_dim, time_dim),
+            torch.nn.BatchNorm1d(time_dim),
+            torch.nn.Tanh(),
+        )
+        self.layers = torch.nn.ModuleList(
             [
                 torch.nn.Linear(flat_shape, 512),
                 torch.nn.Linear(512, 256),
-                torch.nn.Linear(256, latent_dim),
-            ]
-        )
-        self.encoder_bn = torch.nn.ModuleList(
-            [
-                torch.nn.BatchNorm1d(512),
-                torch.nn.BatchNorm1d(256),
-            ]
-        )
-        self.decoder = torch.nn.ModuleList(
-            [
-                torch.nn.Linear(latent_dim, 256),
+                torch.nn.Linear(256, 128),
+                torch.nn.Linear(128, 64),
+                torch.nn.Linear(64, 128),
+                torch.nn.Linear(128, 256),
                 torch.nn.Linear(256, 512),
                 torch.nn.Linear(512, flat_shape),
             ]
         )
-        self.decoder_bn = torch.nn.ModuleList(
+        self.bn = torch.nn.ModuleList(
             [
+                torch.nn.BatchNorm1d(512),
+                torch.nn.BatchNorm1d(256),
+                torch.nn.BatchNorm1d(128),
+                torch.nn.BatchNorm1d(64),
+                torch.nn.BatchNorm1d(128),
                 torch.nn.BatchNorm1d(256),
                 torch.nn.BatchNorm1d(512),
+            ]
+        )
+        # self.bn = torch.nn.ModuleList([torch.nn.GroupNorm(32, 2048)] * 5)
+        self.input_time_proj = torch.nn.Linear(time_dim, flat_shape)
+        self.time_proj = torch.nn.ModuleList(
+            [
+                torch.nn.Linear(time_dim, 512, bias=False),
+                torch.nn.Linear(time_dim, 256, bias=False),
+                torch.nn.Linear(time_dim, 128, bias=False),
+                torch.nn.Linear(time_dim, 64, bias=False),
+                torch.nn.Linear(time_dim, 128, bias=False),
+                torch.nn.Linear(time_dim, 256, bias=False),
+                torch.nn.Linear(time_dim, 512, bias=False),
+            ]
+        )
+        # 3 Skip connections, 1 every 2 layers:
+        self.residual_proj = torch.nn.ModuleList(
+            [
+                torch.nn.Linear(flat_shape, 128, bias=False),
+                torch.nn.Identity(),
+                torch.nn.Linear(128, 512, bias=False),
             ]
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         input_shape = x.shape
         x = x.view(x.shape[0], -1)
-        x = self.time_encoder(x, t)
-        for i, (layer, bn) in enumerate(zip(self.encoder, self.encoder_bn + [None])):
-            if i < (len(self.encoder) - 1):
-                pass  # TODO: Skip connection
-            x = layer(x)
-            if i < (len(self.encoder) - 1):
-                x = bn(x)
-                x = torch.relu(x)
-
-        for i, (layer, bn) in enumerate(zip(self.decoder, self.decoder_bn + [None])):
-            if i < (len(self.encoder) - 1):
-                pass  # TODO: Skip connection
-            x = layer(x)
-            if i < (len(self.encoder) - 1):
-                x = bn(x)
-                x = torch.relu(x)
-
+        _x = x
+        # time_embed = self.time_mlp(self.time_encoder(t))
+        time_embed = self.time_encoder(t)
+        # x += self.input_time_proj(time_embed)
+        for i, (layer, bn, time_proj) in enumerate(
+            zip(self.layers, self.bn, self.time_proj)
+        ):
+            x = layer(x) + time_proj(time_embed)
+            x = bn(x)
+            if i > 0 and i % 2 == 0:
+                x = torch.nn.functional.leaky_relu(
+                    x + self.residual_proj[i // 2 - 1](_x)
+                )
+                _x = x
+            else:
+                x = torch.nn.functional.leaky_relu(x)
+        # x = torch.tanh(self.layers[-1](x))
+        x = self.layers[-1](x)
         return x.view(input_shape)
 
 
@@ -145,11 +162,20 @@ class DiffusionModel(torch.nn.Module):
         timesteps: int,
         beta_1: float,
         beta_T: float,
+        time_embed_dim: int,
     ):
         super().__init__()
-        self.backbone = MLPBackboneModel(
-            input_shape, 128, SinusoidalTimeEncoder(timesteps, input_shape)
+        self.backbone = MLPUNetBackboneModel(
+            input_shape,
+            SinusoidalTimeEncoder(
+                timesteps,
+                time_embed_dim,
+            ),
+            time_embed_dim,
         )
+        # self.backbone = UNetBackbone(
+        # input_shape, SinusoidalTimeEncoder(timesteps, time_embed_dim), time_embed_dim
+        # )
         self.timesteps = timesteps
         self.beta = torch.nn.Parameter(
             torch.linspace(beta_1, beta_T, timesteps), requires_grad=False
@@ -184,22 +210,22 @@ class DiffusionModel(torch.nn.Module):
         # 3. Diffuse the image
         batched_alpha = self.alpha[t]
 
-        assert not torch.isnan(batched_alpha).any(), "Bartched Alphas contains nan"
-        assert not (self.alpha < 0).any(), "Alpha contains neg"
-        assert not (batched_alpha < 0).any(), "Bartched Alphas contains neg"
-        assert not torch.isnan(
-            torch.sqrt(1 - batched_alpha)
-        ).any(), "Sqrt 1-alpha is nan"
+        # assert not torch.isnan(batched_alpha).any(), "Bartched Alphas contains nan"
+        # assert not (self.alpha < 0).any(), "Alpha contains neg"
+        # assert not (batched_alpha < 0).any(), "Bartched Alphas contains neg"
+        # assert not torch.isnan(
+        # torch.sqrt(1 - batched_alpha)
+        # ).any(), "Sqrt 1-alpha is nan"
 
-        assert not torch.isnan(torch.sqrt(batched_alpha)).any(), "Sqrt alpha is nan"
-        assert not torch.isnan(
-            torch.sqrt(1 - batched_alpha)
-        ).any(), "Sqrt 1-alpha is nan"
+        # assert not torch.isnan(torch.sqrt(batched_alpha)).any(), "Sqrt alpha is nan"
+        # assert not torch.isnan(
+        # torch.sqrt(1 - batched_alpha)
+        # ).any(), "Sqrt 1-alpha is nan"
         diffused_x = (
             torch.sqrt(batched_alpha)[..., None, None] * x
             + torch.sqrt(1 - batched_alpha)[..., None, None] * eps
         )
-        assert not torch.isnan(diffused_x).any(), "Diffused x contains nan"
+        # assert not torch.isnan(diffused_x).any(), "Diffused x contains nan"
         # 4. Predict the noise sample
         eps_hat = self.backbone(diffused_x, t)
         return eps_hat, eps

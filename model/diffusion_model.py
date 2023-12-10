@@ -16,7 +16,7 @@ from typing import Tuple
 import torch
 
 from model.time_encoding import SinusoidalTimeEncoder
-from model.unet import UNetBackboneModel
+from model.unet import UNetBackboneModelSmall
 
 
 class MLPBackboneModel(torch.nn.Module):
@@ -166,7 +166,7 @@ class DiffusionModel(torch.nn.Module):
         time_embed_dim: int,
     ):
         super().__init__()
-        self.backbone = UNetBackboneModel(
+        self.backbone = UNetBackboneModelSmall(
             input_shape,
             SinusoidalTimeEncoder(
                 timesteps,

@@ -15,9 +15,6 @@ from typing import Tuple
 
 import torch
 
-from model.time_encoding import SinusoidalTimeEncoder
-from model.unet import UNetBackboneModelSmall
-
 
 class MLPBackboneModel(torch.nn.Module):
     def __init__(
@@ -158,32 +155,22 @@ class MLPUNetBackboneModel(torch.nn.Module):
 class DiffusionModel(torch.nn.Module):
     def __init__(
         self,
-        # backbone: torch.nn.Module,
+        backbone: torch.nn.Module,
         input_shape: Tuple[int],
-        timesteps: int,
+        time_steps: int,
         beta_1: float,
         beta_T: float,
-        time_embed_dim: int,
+        temporal_channels: int,
     ):
         super().__init__()
-        self.backbone = UNetBackboneModelSmall(
-            input_shape,
-            SinusoidalTimeEncoder(
-                timesteps,
-                time_embed_dim,
-            ),
-            time_embed_dim,
-            norm="group",
-            output_paddings=(1, 0, 1, 1),  # MNIST
-            # output_paddings=(1, 1, 1, 1), # CelebA
-        )
-        self.timesteps = timesteps
+        self.backbone = backbone
+        self.time_steps = time_steps
         self.beta = torch.nn.Parameter(
-            torch.linspace(beta_1, beta_T, timesteps), requires_grad=False
+            torch.linspace(beta_1, beta_T, time_steps), requires_grad=False
         )
         self.alpha = torch.nn.Parameter(
             torch.exp(
-                torch.tril(torch.ones((timesteps, timesteps)))
+                torch.tril(torch.ones((time_steps, time_steps)))
                 @ torch.log(1 - self.beta)
             ),
             requires_grad=False,
@@ -202,7 +189,7 @@ class DiffusionModel(torch.nn.Module):
         # ===== Training =========
         # 1. Sample timestep t with shape (B, 1)
         t = (
-            torch.randint(0, self.timesteps, (x.shape[0], 1))
+            torch.randint(0, self.time_steps, (x.shape[0], 1))
             .to(x.device)
             .requires_grad_(False)
         )
@@ -236,7 +223,7 @@ class DiffusionModel(torch.nn.Module):
         with torch.no_grad():
             device = next(self.parameters()).device
             z_current = torch.randn(n, *self._input_shape).to(device)
-            for t in range(self.timesteps - 1, 0, -1):  # Reversed from T to 1
+            for t in range(self.time_steps - 1, 0, -1):  # Reversed from T to 1
                 eps_hat = self.backbone(
                     z_current, torch.tensor(t).view(1, 1).repeat(n, 1).to(device)
                 )

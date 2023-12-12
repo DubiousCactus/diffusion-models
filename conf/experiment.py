@@ -30,6 +30,8 @@ from dataset.celeba import CelebADataset
 from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
 from model.diffusion_model import DiffusionModel, MLPBackboneModel
+from model.time_encoding import SinusoidalTimeEncoder
+from model.unet import UNetBackboneModelLarge, UNetBackboneModelSmall
 from src.base_tester import BaseTester
 from src.base_trainer import BaseTrainer
 
@@ -107,8 +109,26 @@ class DataloaderConf:
 
 
 " ================== Model ================== "
+
+
+@dataclass
+class BackboneConf:
+    input_shape: Tuple[int]
+    temporal_channels: int
+    output_paddings: Tuple[int]
+    normalization: str = "group"
+
+
+@dataclass
+class TimeEncoderConf:
+    time_steps: int
+    model_dim: int
+
+
 # Pre-set the group for store's model entries
 model_store = store(group="model")
+backbone_store = store(group="backbone")
+time_encoder_store = store(group="time_encoder")
 
 # Not that encoder_input_dim depend on dataset.img_dim, so we need to use a partial to set them in
 # the launch_experiment function.
@@ -119,16 +139,39 @@ model_store(
 model_store(
     pbuilds(
         DiffusionModel,
-        # backbone=MISSING,
-        timesteps=1000,
+        backbone=MISSING,
+        time_steps=1000,
         beta_1=10e-4,
         beta_T=0.02,
         input_shape=MISSING,
-        time_embed_dim=256,
+        temporal_channels=256,
     ),
     name="diffusion_model",
 )
 
+backbone_store(
+    pbuilds(
+        UNetBackboneModelSmall,
+        builds_bases=(BackboneConf,),
+    ),
+    name="unet_small",
+)
+
+backbone_store(
+    pbuilds(
+        UNetBackboneModelLarge,
+        builds_bases=(BackboneConf,),
+    ),
+    name="unet_large",
+)
+
+time_encoder_store(
+    pbuilds(
+        SinusoidalTimeEncoder,
+        builds_bases=(TimeEncoderConf,),
+    ),
+    name="sinusoidal",
+)
 
 " ================== Optimizer ================== "
 
@@ -225,6 +268,8 @@ Experiment = builds(
         {"tester": "base"},
         {"dataset": "image_a"},
         {"model": "model_a"},
+        {"backbone": "unet_small"},
+        {"time_encoder": "sinusoidal"},
         {"optimizer": "adam"},
         {"scheduler": "step"},
         {"run": "default"},
@@ -233,6 +278,8 @@ Experiment = builds(
     tester=MISSING,
     dataset=MISSING,
     model=MISSING,
+    backbone=MISSING,
+    time_encoder=MISSING,
     optimizer=MISSING,
     scheduler=MISSING,
     run=MISSING,
@@ -251,9 +298,11 @@ experiment_store(
         hydra_defaults=[
             "_self_",
             {"override /model": "diffusion_model"},
+            {"override /backbone": "unet_small"},
             {"override /dataset": "mnist"},
         ],
-        model=dict(input_shape=(28, 28, 1), time_embed_dim=512),
+        model=dict(input_shape=(28, 28, 1), temporal_channels=512),
+        backbone=dict(output_paddings=(1, 0, 1, 1)),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=128),
         bases=(Experiment,),
@@ -266,9 +315,11 @@ experiment_store(
         hydra_defaults=[
             "_self_",
             {"override /model": "diffusion_model"},
+            {"override /backbone": "unet_small"},
             {"override /dataset": "celeba"},
         ],
-        model=dict(input_shape=(64, 64, 3), time_embed_dim=512),
+        model=dict(input_shape=(64, 64, 3), temporal_channels=512),
+        backbone=dict(output_paddings=(1, 1, 1, 1)),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=64),
         bases=(Experiment,),

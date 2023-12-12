@@ -34,6 +34,8 @@ def launch_experiment(
     tester: Partial[BaseTrainer],
     dataset: torch.utils.data.Dataset,
     model: Partial[torch.nn.Module],
+    backbone: Partial[torch.nn.Module],
+    time_encoder: Partial[torch.nn.Module],
 ):
     run_name = os.path.basename(HydraConfig.get().runtime.output_dir)
     # Generate a random ANSI code:
@@ -61,13 +63,22 @@ def launch_experiment(
     )
 
     "============ Partials instantiation ============"
-    model_inst = model(
-        input_shape=just(dataset).img_dim
+    time_encoder_inst = time_encoder(
+        model_dim=just(model).temporal_channels, time_steps=just(model).time_steps
+    )
+    backbone_inst = backbone(
+        input_shape=just(dataset).img_dim,
+        temporal_channels=just(model).temporal_channels,
+        time_encoder=time_encoder_inst,
     )  # Use just() to get the config out of the Zen-Partial
+    print(backbone_inst)
+    model_inst = model(input_shape=just(dataset).img_dim, backbone=backbone_inst)
     print(model_inst)
-    print(f"Number of parameters: {sum(p.numel() for p in model_inst.parameters())}")
     print(
-        f"Number of trainable parameters: {sum(p.numel() for p in model_inst.parameters() if p.requires_grad)}"
+        f"Number of parameters: {sum(p.numel() for p in model_inst.parameters()) + sum(p.numel() for p in backbone_inst.parameters())}"
+    )
+    print(
+        f"Number of trainable parameters: {sum(p.numel() for p in model_inst.parameters() if p.requires_grad) + sum(p.numel() for p in backbone_inst.parameters() if p.requires_grad)}"
     )
     train_dataset, val_dataset, test_dataset = None, None, None
     if run.training_mode:

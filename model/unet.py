@@ -16,7 +16,6 @@ from typing import Tuple
 import torch
 
 
-# TODO: Refactor these 3 following blocks into something DRY
 class ResidualBlock(torch.nn.Module):
     def __init__(
         self,
@@ -24,7 +23,7 @@ class ResidualBlock(torch.nn.Module):
         channels_out: int,
         temporal_dim: int,
         norm_groups: int = 8,
-        norm: str = "group",
+        normalization: str = "group",
         strides: Tuple[int, int] = (1, 1, 1),
         paddings: Tuple[int, int] = (1, 1, 0),
         kernels: Tuple[int, int] = (3, 3, 1),
@@ -46,7 +45,7 @@ class ResidualBlock(torch.nn.Module):
         )
         self.norm1 = (
             torch.nn.GroupNorm(norm_groups, channels_out)
-            if norm == "group"
+            if normalization == "group"
             else torch.nn.BatchNorm2d(channels_out)
         )
         self.nonlin = torch.nn.GELU()
@@ -60,7 +59,7 @@ class ResidualBlock(torch.nn.Module):
         )
         self.norm2 = (
             torch.nn.GroupNorm(norm_groups, channels_out)
-            if norm == "group"
+            if normalization == "group"
             else torch.nn.BatchNorm2d(channels_out)
         )
         self.out_activation = torch.nn.GELU()
@@ -110,10 +109,10 @@ class IdentityResidualBlock(ResidualBlock):
         channels_out: int,
         temporal_channels: int,
         norm_groups: int = 8,
-        norm: str = "group",
+        normalization: str = "group",
     ):
         super().__init__(
-            channels_in, channels_out, temporal_channels, norm_groups, norm
+            channels_in, channels_out, temporal_channels, norm_groups, normalization
         )
 
 
@@ -125,14 +124,14 @@ class DownScaleResidualBlock(ResidualBlock):
         temporal_channels: int,
         pooling: bool = False,  # TODO
         norm_groups: int = 8,
-        norm: str = "group",
+        normalization: str = "group",
     ):
         super().__init__(
             channels_in,
             channels_out,
             temporal_channels,
             norm_groups,
-            norm,
+            normalization,
             strides=(2, 1, 2),
             paddings=(1, 1, 0),
             kernels=(3, 3, 1),
@@ -149,14 +148,14 @@ class UpScaleResidualBlock(ResidualBlock):
         upsampling: bool = False,  # TODO
         output_padding: int = 0,
         norm_groups: int = 8,
-        norm: str = "group",
+        normalization: str = "group",
     ):
         super().__init__(
             channels_in,
             channels_out,
             temporal_channels,
             norm_groups,
-            norm,
+            normalization,
             strides=(1, 2, 2),
             paddings=(1, 1, 0),
             kernels=(3, 3, 1),
@@ -171,7 +170,7 @@ class UNetBackboneModel(torch.nn.Module, metaclass=abc.ABCMeta):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
-        norm: str = "group",
+        normalization: str = "group",
     ):
         super().__init__()
         self.input_shape = input_shape
@@ -190,10 +189,12 @@ class UNetBackboneModelLarge(UNetBackboneModel):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
-        norm: str = "group",
+        normalization: str = "group",
         output_paddings: Tuple = (1, 1, 1, 1),
     ):
-        super().__init__(input_shape, time_encoder, temporal_channels, norm=norm)
+        super().__init__(
+            input_shape, time_encoder, temporal_channels, normalization=normalization
+        )
         self.time_embedder = torch.nn.Sequential(
             torch.nn.Linear(temporal_channels, temporal_channels),
             torch.nn.GELU(),
@@ -204,64 +205,68 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             self.in_channels,
             128,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
-        self.identity2 = IdentityResidualBlock(128, 128, temporal_channels, norm=norm)
+        self.identity2 = IdentityResidualBlock(
+            128, 128, temporal_channels, normalization=normalization
+        )
         self.down1 = DownScaleResidualBlock(
             128,
             128,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down2 = DownScaleResidualBlock(
             128,
             256,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down3 = DownScaleResidualBlock(
             256,
             512,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down4 = DownScaleResidualBlock(
             512,
             512,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.tunnel1 = IdentityResidualBlock(
-            512, 512, temporal_channels, norm=norm
+            512, 512, temporal_channels, normalization=normalization
         )  # This is the middle 'bottleneck'
-        self.tunnel2 = IdentityResidualBlock(512, 512, temporal_channels, norm=norm)
+        self.tunnel2 = IdentityResidualBlock(
+            512, 512, temporal_channels, normalization=normalization
+        )
         self.up1 = UpScaleResidualBlock(
             512 + 512,
             256,
             temporal_channels,
             output_padding=output_paddings[0],
-            norm=norm,
+            normalization=normalization,
         )
         self.up2 = UpScaleResidualBlock(
             256 + 512,
             128,
             temporal_channels,
             output_padding=output_paddings[1],
-            norm=norm,
+            normalization=normalization,
         )
         self.up3 = UpScaleResidualBlock(
             256 + 128,
             64,
             temporal_channels,
             output_padding=output_paddings[2],
-            norm=norm,
+            normalization=normalization,
         )
         self.up4 = UpScaleResidualBlock(
             128 + 64,
             32,
             temporal_channels,
             output_padding=output_paddings[3],
-            norm=norm,
+            normalization=normalization,
         )
         self.identity3 = IdentityResidualBlock(
             32 + 128,
@@ -299,10 +304,12 @@ class UNetBackboneModelSmall(UNetBackboneModel):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
-        norm: str = "group",
+        normalization: str = "group",
         output_paddings: Tuple = (1, 1, 1, 1),
     ):
-        super().__init__(input_shape, time_encoder, temporal_channels, norm=norm)
+        super().__init__(
+            input_shape, time_encoder, temporal_channels, normalization=normalization
+        )
         self.time_embedder = torch.nn.Sequential(
             torch.nn.Linear(temporal_channels, temporal_channels),
             torch.nn.GELU(),
@@ -312,56 +319,58 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             self.in_channels,
             64,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down1 = DownScaleResidualBlock(
             64,
             64,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down2 = DownScaleResidualBlock(
             64,
             128,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down3 = DownScaleResidualBlock(
             128,
             256,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.down4 = DownScaleResidualBlock(
             256,
             256,
             temporal_channels,
-            norm=norm,
+            normalization=normalization,
         )
         self.tunnel1 = IdentityResidualBlock(
-            256, 256, temporal_channels, norm=norm
+            256, 256, temporal_channels, normalization=normalization
         )  # This is the middle 'bottleneck'
-        self.tunnel2 = IdentityResidualBlock(256, 256, temporal_channels, norm=norm)
+        self.tunnel2 = IdentityResidualBlock(
+            256, 256, temporal_channels, normalization=normalization
+        )
         self.up1 = UpScaleResidualBlock(
             512,
             128,
             temporal_channels,
             output_padding=output_paddings[0],
-            norm=norm,
+            normalization=normalization,
         )
         self.up2 = UpScaleResidualBlock(
             128 + 256,
             64,
             temporal_channels,
             output_padding=output_paddings[1],
-            norm=norm,
+            normalization=normalization,
         )
         self.up3 = UpScaleResidualBlock(
             64 + 128,
             32,
             temporal_channels,
             output_padding=output_paddings[2],
-            norm=norm,
+            normalization=normalization,
         )
         self.up4 = UpScaleResidualBlock(
             96,
@@ -369,14 +378,14 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             temporal_channels,
             output_padding=output_paddings[3],
             norm_groups=4,
-            norm=norm,
+            normalization=normalization,
         )
         self.identity3 = IdentityResidualBlock(
             16,
             16,
             temporal_channels,
             norm_groups=4,
-            norm=norm,
+            normalization=normalization,
         )
         self.out_conv = torch.nn.Conv2d(16, self.in_channels, 1, padding=0, stride=1)
 

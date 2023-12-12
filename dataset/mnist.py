@@ -21,14 +21,14 @@ from dataset.base.image import ImageDataset
 
 
 class MNISTDataset(ImageDataset):
-    IMG_SIZE = (28, 28)
+    IMG_SIZE = (28, 28, 1)
 
     def __init__(
         self,
         dataset_name: str,
         dataset_root: str,
         split: str,
-        img_dim: Optional[int] = None,
+        img_dim: Optional[Tuple[int]] = None,
         augment=False,
         normalize=False,
         debug=False,
@@ -47,6 +47,16 @@ class MNISTDataset(ImageDataset):
             seed=seed,
         )
         self._normalization = transforms.Normalize(0.1307, 0.3081)
+        self.denormalize = (
+            transforms.Compose(
+                [
+                    transforms.Normalize(0, 1 / 0.3081),
+                    transforms.Normalize(-0.1307, 1),
+                ]
+            )
+            if normalize
+            else lambda x: x
+        )
 
     def _load(
         self,

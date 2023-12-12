@@ -16,6 +16,7 @@ from typing import Tuple
 import torch
 
 
+# TODO: Refactor these 3 following blocks into something DRY
 class IdentityResidualBlock(torch.nn.Module):
     def __init__(
         self,
@@ -24,13 +25,22 @@ class IdentityResidualBlock(torch.nn.Module):
         temporal_channels: int,
         temporal_projection_stride: int,
         norm_groups: int = 32,
+        norm: str = "group",
     ):
         super().__init__()
         self.conv1 = torch.nn.Conv2d(channels_in, channels_out, 3, padding=1, stride=1)
-        self.norm1 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm1 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.nonlin = torch.nn.LeakyReLU()
         self.conv2 = torch.nn.Conv2d(channels_out, channels_out, 3, padding=1, stride=1)
-        self.norm2 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm2 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.out_relu = torch.nn.LeakyReLU()
         self.temporal_projection = torch.nn.Conv2d(
             temporal_channels,
@@ -71,15 +81,24 @@ class DownScaleResidualBlock(torch.nn.Module):
         temporal_projection_stride: int,
         pooling: bool = True,
         norm_groups: int = 32,
+        norm: str = "group",
     ):
         super().__init__()
         self.conv1 = torch.nn.Conv2d(
             channels_in, channels_out, 3, padding=1, stride=2 if not pooling else 1
         )
-        self.norm1 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm1 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.nonlin = torch.nn.LeakyReLU()
         self.conv2 = torch.nn.Conv2d(channels_out, channels_out, 3, padding=1, stride=1)
-        self.norm2 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm2 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.out_relu = torch.nn.LeakyReLU()
         self.temporal_projection = torch.nn.Conv2d(
             temporal_channels,
@@ -123,12 +142,17 @@ class UpScaleResidualBlock(torch.nn.Module):
         upsampling: bool = False,
         output_padding: int = 0,
         norm_groups: int = 32,
+        norm: str = "group",
     ):
         super().__init__()
         self.upconv1 = torch.nn.ConvTranspose2d(
             channels_in, channels_out, 3, padding=1, stride=1
         )
-        self.norm1 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm1 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.nonlin = torch.nn.LeakyReLU()
         self.upconv2 = torch.nn.ConvTranspose2d(
             channels_out,
@@ -138,7 +162,11 @@ class UpScaleResidualBlock(torch.nn.Module):
             stride=2 if not upsampling else 1,
             output_padding=output_padding,
         )
-        self.norm2 = torch.nn.GroupNorm(norm_groups, channels_out)
+        self.norm2 = (
+            torch.nn.GroupNorm(norm_groups, channels_out)
+            if norm == "group"
+            else torch.nn.BatchNorm2d(channels_out)
+        )
         self.out_relu = torch.nn.LeakyReLU()
         self.temporal_projection = torch.nn.Conv2d(
             temporal_channels,
@@ -187,6 +215,7 @@ class UNetBackboneModel(torch.nn.Module, metaclass=abc.ABCMeta):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
+        norm: str = "group",
     ):
         super().__init__()
         self.input_shape = input_shape
@@ -208,22 +237,27 @@ class UNetBackboneModelLarge(UNetBackboneModel):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
+        norm: str = "group",
     ):
-        super().__init__(input_shape, time_encoder, temporal_channels)
+        super().__init__(input_shape, time_encoder, temporal_channels, norm=norm)
         self.temporal_network = torch.nn.Sequential(
             torch.nn.Linear(temporal_channels, temporal_channels),
-            torch.nn.BatchNorm1d(temporal_channels),
-            torch.nn.ReLU(),
+            # torch.nn.BatchNorm1d(temporal_channels),
+            torch.nn.GELU(),
             torch.nn.Linear(temporal_channels, temporal_channels),
-            torch.nn.BatchNorm1d(temporal_channels),
-            torch.nn.Tanh(),
+            # torch.nn.BatchNorm1d(temporal_channels),
+            # torch.nn.Tanh(),
         )
         # TODO: Global self-attention bewtween some blocks (instead of residualblock?)
         self.identity1 = IdentityResidualBlock(
-            self.in_channels, 128, temporal_channels, temporal_projection_stride=1
+            self.in_channels,
+            128,
+            temporal_channels,
+            temporal_projection_stride=1,
+            norm=norm,
         )
         self.identity2 = IdentityResidualBlock(
-            128, 128, temporal_channels, temporal_projection_stride=1
+            128, 128, temporal_channels, temporal_projection_stride=1, norm=norm
         )
         self.down1 = DownScaleResidualBlock(
             128,
@@ -231,21 +265,37 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             temporal_channels,
             temporal_projection_stride=2,
             pooling=False,
+            norm=norm,
         )
         self.down2 = DownScaleResidualBlock(
-            128, 256, temporal_channels, temporal_projection_stride=4, pooling=False
+            128,
+            256,
+            temporal_channels,
+            temporal_projection_stride=4,
+            pooling=False,
+            norm=norm,
         )
         self.down3 = DownScaleResidualBlock(
-            256, 512, temporal_channels, temporal_projection_stride=8, pooling=False
+            256,
+            512,
+            temporal_channels,
+            temporal_projection_stride=8,
+            pooling=False,
+            norm=norm,
         )
         self.down4 = DownScaleResidualBlock(
-            512, 512, temporal_channels, temporal_projection_stride=16, pooling=False
+            512,
+            512,
+            temporal_channels,
+            temporal_projection_stride=16,
+            pooling=False,
+            norm=norm,
         )
         self.tunnel1 = IdentityResidualBlock(
-            512, 512, temporal_channels, temporal_projection_stride=16
+            512, 512, temporal_channels, temporal_projection_stride=16, norm=norm
         )  # This is the middle 'bottleneck'
         self.tunnel2 = IdentityResidualBlock(
-            512, 512, temporal_channels, temporal_projection_stride=16
+            512, 512, temporal_channels, temporal_projection_stride=16, norm=norm
         )
         self.up1 = UpScaleResidualBlock(
             512 + 512,
@@ -254,6 +304,7 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             temporal_projection_stride=16,
             upsampling=False,
             output_padding=1,
+            norm=norm,
         )
         self.up2 = UpScaleResidualBlock(
             256 + 512,
@@ -261,7 +312,8 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             temporal_channels,
             temporal_projection_stride=8,
             upsampling=False,
-            output_padding=0,
+            output_padding=1,
+            norm=norm,
         )
         self.up3 = UpScaleResidualBlock(
             256 + 128,
@@ -270,6 +322,7 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             temporal_projection_stride=4,
             upsampling=False,
             output_padding=1,
+            norm=norm,
         )
         self.up4 = UpScaleResidualBlock(
             128 + 64,
@@ -279,12 +332,13 @@ class UNetBackboneModelLarge(UNetBackboneModel):
             upsampling=False,
             output_padding=1,
             norm_groups=16,
+            norm=norm,
         )
         self.identity3 = IdentityResidualBlock(
             32 + 128, 32 + 128, temporal_channels, temporal_projection_stride=1
         )
         self.identity4 = IdentityResidualBlock(
-            32 + 128 + 128, 128, temporal_channels, temporal_projection_stride=1
+            32 + 128, 128, temporal_channels, temporal_projection_stride=1
         )  # This one changes the number of channels
         self.out_conv = torch.nn.Conv2d(128, self.in_channels, 1, padding=0, stride=1)
 
@@ -296,12 +350,12 @@ class UNetBackboneModelLarge(UNetBackboneModel):
         x5 = self.down3(x4, t)
         x6 = self.down4(x5, t)
         x7 = self.tunnel1(x6, t)
-        x8 = torch.cat((self.tunnel2(x7, t), x6), dim=1)
-        x9 = torch.cat((self.up1(x8, t), x5), dim=1)
-        x10 = torch.cat((self.up2(x9, t), x4), dim=1)
-        x11 = torch.cat((self.up3(x10, t), x3), dim=1)
-        x12 = torch.cat((self.up4(x11, t), x2), dim=1)
-        x13 = torch.cat((self.identity3(x12, t), x1), dim=1)
+        x8 = self.tunnel2(x7, t)
+        x9 = self.up1(torch.cat((x8, x6), dim=1), t)
+        x10 = self.up2(torch.cat((x9, x5), dim=1), t)
+        x11 = self.up3(torch.cat((x10, x4), dim=1), t)
+        x12 = self.up4(torch.cat((x11, x3), dim=1), t)
+        x13 = self.identity3(torch.cat((x12, x2), dim=1), t)
         x14 = self.identity4(x13, t)
         return self.out_conv(x14)
 
@@ -312,10 +366,23 @@ class UNetBackboneModelSmall(UNetBackboneModel):
         input_shape: Tuple[int],
         time_encoder: torch.nn.Module,
         temporal_channels: int,
+        norm: str = "group",
     ):
-        super().__init__(input_shape, time_encoder, temporal_channels)
+        super().__init__(input_shape, time_encoder, temporal_channels, norm=norm)
+        self.temporal_network = torch.nn.Sequential(
+            torch.nn.Linear(temporal_channels, temporal_channels),
+            # torch.nn.BatchNorm1d(temporal_channels),
+            torch.nn.GELU(),
+            torch.nn.Linear(temporal_channels, temporal_channels),
+            # torch.nn.BatchNorm1d(temporal_channels),
+            # torch.nn.Tanh(),
+        )
         self.identity1 = IdentityResidualBlock(
-            self.in_channels, 64, temporal_channels, temporal_projection_stride=1
+            self.in_channels,
+            64,
+            temporal_channels,
+            temporal_projection_stride=1,
+            norm=norm,
         )
         self.down1 = DownScaleResidualBlock(
             64,
@@ -323,21 +390,37 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             temporal_channels,
             temporal_projection_stride=2,
             pooling=False,
+            norm=norm,
         )
         self.down2 = DownScaleResidualBlock(
-            64, 128, temporal_channels, temporal_projection_stride=4, pooling=False
+            64,
+            128,
+            temporal_channels,
+            temporal_projection_stride=4,
+            pooling=False,
+            norm=norm,
         )
         self.down3 = DownScaleResidualBlock(
-            128, 256, temporal_channels, temporal_projection_stride=8, pooling=False
+            128,
+            256,
+            temporal_channels,
+            temporal_projection_stride=8,
+            pooling=False,
+            norm=norm,
         )
         self.down4 = DownScaleResidualBlock(
-            256, 256, temporal_channels, temporal_projection_stride=16, pooling=False
+            256,
+            256,
+            temporal_channels,
+            temporal_projection_stride=16,
+            pooling=False,
+            norm=norm,
         )
         self.tunnel1 = IdentityResidualBlock(
-            256, 256, temporal_channels, temporal_projection_stride=16
+            256, 256, temporal_channels, temporal_projection_stride=16, norm=norm
         )  # This is the middle 'bottleneck'
         self.tunnel2 = IdentityResidualBlock(
-            256, 256, temporal_channels, temporal_projection_stride=16
+            256, 256, temporal_channels, temporal_projection_stride=16, norm=norm
         )
         self.up1 = UpScaleResidualBlock(
             512,
@@ -346,6 +429,7 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             temporal_projection_stride=16,
             upsampling=False,
             output_padding=1,
+            norm=norm,
         )
         self.up2 = UpScaleResidualBlock(
             128 + 256,
@@ -353,8 +437,9 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             temporal_channels,
             temporal_projection_stride=8,
             upsampling=False,
-            output_padding=0,
+            output_padding=1,
             norm_groups=16,
+            norm=norm,
         )
         self.up3 = UpScaleResidualBlock(
             64 + 128,
@@ -364,6 +449,7 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             upsampling=False,
             output_padding=1,
             norm_groups=8,
+            norm=norm,
         )
         self.up4 = UpScaleResidualBlock(
             96,
@@ -373,9 +459,15 @@ class UNetBackboneModelSmall(UNetBackboneModel):
             upsampling=False,
             output_padding=1,
             norm_groups=4,
+            norm=norm,
         )
         self.identity3 = IdentityResidualBlock(
-            16, 16, temporal_channels, temporal_projection_stride=1, norm_groups=4
+            16,
+            16,
+            temporal_channels,
+            temporal_projection_stride=1,
+            norm_groups=4,
+            norm=norm,
         )
         self.out_conv = torch.nn.Conv2d(16, self.in_channels, 1, padding=0, stride=1)
 
@@ -387,6 +479,10 @@ class UNetBackboneModelSmall(UNetBackboneModel):
         x5 = self.down4(x4, t)
         x6 = self.tunnel1(x5, t)
         x7 = self.tunnel2(x6, t)
+        # The output of the final downsampling layer is concatenated with the output of the final
+        # tunnel layer because they have the same shape H and W. Then we upscale those features and
+        # conctenate the upscaled features with the output of the previous downsampling layer, and
+        # so on.
         x8 = self.up1(torch.cat((x7, x5), dim=1), t)
         x9 = self.up2(torch.cat((x8, x4), dim=1), t)
         x10 = self.up3(torch.cat((x9, x3), dim=1), t)

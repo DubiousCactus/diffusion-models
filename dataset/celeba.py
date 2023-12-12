@@ -20,14 +20,14 @@ from dataset.base.image import ImageDataset
 
 
 class CelebADataset(ImageDataset):
-    IMG_SIZE = (64, 64)
+    IMG_SIZE = (64, 64, 3)
 
     def __init__(
         self,
         dataset_name: str,
         dataset_root: str,
         split: str,
-        img_dim: Optional[int] = None,
+        img_dim: Optional[Tuple[int]] = None,
         augment=False,
         normalize=False,
         debug=False,
@@ -49,19 +49,30 @@ class CelebADataset(ImageDataset):
         self._dataset = CelebA(
             root=dataset_root,
             split=split,
-            download=True,
+            download=False,
             target_type="identity",
             transform=transforms.Compose(
                 [
                     transforms.Resize(
-                        self.IMG_SIZE[0] + 8 if img_dim is None else img_dim + 8
+                        self.IMG_SIZE[:2] if img_dim is None else img_dim[:2]
                     ),
                     transforms.CenterCrop(
-                        self.IMG_SIZE if img_dim is None else img_dim
+                        self.IMG_SIZE[:2] if img_dim is None else img_dim[:2]
                     ),
                     transforms.ToTensor(),
                 ]
             ),
+        )
+        self._normalization = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        self.denormalize = (
+            transforms.Compose(
+                [
+                    transforms.Normalize((0, 0, 0), (1 / 0.5, 1 / 0.5, 1 / 0.5)),
+                    transforms.Normalize((-0.5, -0.5, -0.5), (1, 1, 1)),
+                ]
+            )
+            if normalize
+            else lambda x: x
         )
 
     def _load(

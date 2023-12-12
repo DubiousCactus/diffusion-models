@@ -10,7 +10,7 @@ Training utilities. This is a good place for your code that is used in training 
 function, visualization code, etc.)
 """
 
-from typing import List, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import torch
@@ -20,14 +20,18 @@ from utils import to_cuda_
 
 
 def visualize_model_predictions(
-    model: torch.nn.Module, batch: Union[Tuple, List, torch.Tensor], step: int
+    model: torch.nn.Module,
+    batch: Union[Tuple, List, torch.Tensor],
+    step: int,
+    denormalize: Callable,
 ) -> None:
     x, y = to_cuda_(batch)  # type: ignore
     if not project_conf.HEADLESS:
         x_hat = model.generate(10)
-        # TODO: Parameterize this!
-        x_hat = x_hat * 0.3081 + 0.1307  # (MNIST std and mean)
-        # Clip to [0, 1]:
+        print("Normalized output: ", x_hat.min(), x_hat.max())
+        x_hat = denormalize(x_hat)
+        print("Denormalized output: ", x_hat.min(), x_hat.max())
+        # Clip to [0, 1]: (MatPlotLib does this automatically)
         # x_hat = torch.clamp(x_hat, 0, 1)
         fig, axs = plt.subplots(1, 10)
         for i in range(10):

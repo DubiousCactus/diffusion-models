@@ -10,7 +10,7 @@ Configurations for the experiments and config groups, using hydra-zen.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 from hydra.conf import HydraConf, JobConf, RunDir
@@ -61,7 +61,7 @@ class ImageDatasetConf:
     normalize: bool = True
     augment: bool = False
     debug: bool = False
-    img_dim: int = CelebADataset.IMG_SIZE[0]
+    img_dim: Tuple[int] = MISSING
 
 
 # Pre-set the group for store's dataset entries
@@ -71,7 +71,8 @@ dataset_store(
         CelebADataset,
         builds_bases=(ImageDatasetConf,),
         dataset_name="celeba",
-        img_dim=CelebADataset.IMG_SIZE[0],
+        dataset_root="data/celeba",
+        img_dim=CelebADataset.IMG_SIZE,
     ),
     name="celeba",
 )
@@ -80,7 +81,8 @@ dataset_store(
         MNISTDataset,
         builds_bases=(ImageDatasetConf,),
         dataset_name="mnist",
-        img_dim=MNISTDataset.IMG_SIZE[0],
+        dataset_root="data/mnist",
+        img_dim=MNISTDataset.IMG_SIZE,
     ),
     name="mnist",
 )
@@ -122,7 +124,7 @@ model_store(
         beta_1=10e-4,
         beta_T=0.02,
         input_shape=MISSING,
-        time_embed_dim=512,
+        time_embed_dim=256,
     ),
     name="diffusion_model",
 )
@@ -253,8 +255,23 @@ experiment_store(
         ],
         model=dict(input_shape=(28, 28, 1), time_embed_dim=512),
         run=dict(epochs=1000, viz_every=10),
-        data_loader=dict(batch_size=512),
+        data_loader=dict(batch_size=128),
         bases=(Experiment,),
     ),
     name="mnist",
+)
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "diffusion_model"},
+            {"override /dataset": "celeba"},
+        ],
+        model=dict(input_shape=(64, 64, 3), time_embed_dim=512),
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=64),
+        bases=(Experiment,),
+    ),
+    name="celeba",
 )

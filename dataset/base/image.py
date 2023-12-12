@@ -51,11 +51,23 @@ class ImageDataset(BaseDataset, abc.ABC):
         self._img_size = self.IMG_SIZE if img_size is None else img_size
         self._transforms = transforms.Compose(
             [
-                transforms.Resize(self._img_size),
+                transforms.Resize(self._img_size[:2]),
             ]
         )
         self._normalization = transforms.Normalize(
             self.IMAGE_NET_MEAN, self.IMAGE_NET_STD
+        )
+        self.denormalize = (
+            transforms.Compose(
+                [
+                    transforms.Normalize(
+                        (0, 0, 0), (1.0 / s for s in self.IMAGE_NET_STD)
+                    ),
+                    transforms.Normalize((-m for m in self.IMAGE_NET_MEAN), (1, 1, 1)),
+                ]
+            )
+            if normalize
+            else lambda x: x
         )
         self._augs = lambda x: x
         # self._augs = A.Compose(

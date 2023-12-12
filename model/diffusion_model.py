@@ -173,6 +173,7 @@ class DiffusionModel(torch.nn.Module):
                 time_embed_dim,
             ),
             time_embed_dim,
+            norm="batchnorm",
         )
         self.timesteps = timesteps
         self.beta = torch.nn.Parameter(

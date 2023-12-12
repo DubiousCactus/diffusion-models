@@ -62,7 +62,7 @@ def launch_experiment(
 
     "============ Partials instantiation ============"
     model_inst = model(
-        input_shape=(just(dataset).img_dim, just(dataset).img_dim, 1)
+        input_shape=just(dataset).img_dim
     )  # Use just() to get the config out of the Zen-Partial
     print(model_inst)
     print(f"Number of parameters: {sum(p.numel() for p in model_inst.parameters())}")

@@ -75,7 +75,7 @@ class BaseTrainer:
             epoch: The current epoch.
         """
         visualize_model_predictions(
-            self._model, batch, epoch
+            self._model, batch, epoch, self._val_loader.dataset.denormalize
         )  # User implementation goes here (utils/training.py)
 
     @to_cuda

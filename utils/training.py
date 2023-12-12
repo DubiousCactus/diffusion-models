@@ -28,11 +28,9 @@ def visualize_model_predictions(
     x, y = to_cuda_(batch)  # type: ignore
     if not project_conf.HEADLESS:
         x_hat = model.generate(10)
-        print("Normalized output: ", x_hat.min(), x_hat.max())
         x_hat = denormalize(x_hat)
-        print("Denormalized output: ", x_hat.min(), x_hat.max())
-        # Clip to [0, 1]: (MatPlotLib does this automatically)
-        # x_hat = torch.clamp(x_hat, 0, 1)
+        # Clip to [0, 1]: (MatPlotLib does this automatically though)
+        x_hat = torch.clamp(x_hat, 0, 1)
         fig, axs = plt.subplots(1, 10)
         for i in range(10):
             axs[i].imshow(x_hat[i].swapaxes(0, 2).swapaxes(0, 1).cpu().numpy())

@@ -58,12 +58,12 @@ class BaseTester(BaseTrainer):
         Args:
             batch: The batch to process.
         Returns:
-            torch.Tensor: The loss for the batch.
+            Dict[str, torch.Tensor]: The metrics computed for this batch.
         """
-        # x, y = batch  # type: ignore
-        # y_hat = self._model(x)
-        # TODO: Compute your metrics here!
-        return {}
+        x, _ = batch
+        y_hat, y = self._model(x)
+        loss = torch.nn.functional.mse_loss(y_hat, y)
+        return {"loss": loss}
 
     def test(self, visualize_every: int = 0, **kwargs):
         """Computes the average loss on the test set.
@@ -82,13 +82,13 @@ class BaseTester(BaseTrainer):
                 if not self._running:
                     print("[!] Testing aborted.")
                     break
-                metrics = self._test_iteration(batch)
-                for k, v in metrics.items():
+                batch_metrics = self._test_iteration(batch)
+                for k, v in batch_metrics.items():
                     metrics[k].update(v.item())
                 " ==================== Visualization ==================== "
                 if visualize_every > 0 and (i + 1) % visualize_every == 0:
                     visualize_model_predictions(
-                        self._model, batch, i
+                        self._model, batch, i, self._data_loader.dataset.denormalize
                     )  # User implementation goes here (utils/training.py)
                 self._pbar.update()
         self._pbar.close()

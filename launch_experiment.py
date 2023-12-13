@@ -52,6 +52,8 @@ def launch_experiment(
             run_conf=run,
             dataset=dataset,
             model=model,
+            backbone=backbone,
+            time_encoder=time_encoder,
             optimizer=optimizer,
             scheduler=scheduler,
         )
@@ -75,10 +77,12 @@ def launch_experiment(
     model_inst = model(input_shape=just(dataset).img_dim, backbone=backbone_inst)
     print(model_inst)
     print(
-        f"Number of parameters: {sum(p.numel() for p in model_inst.parameters()) + sum(p.numel() for p in backbone_inst.parameters())}"
+        f"Number of parameters: "
+        + f"{sum(p.numel() for p in model_inst.parameters()) + sum(p.numel() for p in backbone_inst.parameters())}"
     )
     print(
-        f"Number of trainable parameters: {sum(p.numel() for p in model_inst.parameters() if p.requires_grad) + sum(p.numel() for p in backbone_inst.parameters() if p.requires_grad)}"
+        f"Number of trainable parameters: "
+        + f"{sum(p.numel() for p in model_inst.parameters() if p.requires_grad) + sum(p.numel() for p in backbone_inst.parameters() if p.requires_grad)}"
     )
     train_dataset, val_dataset, test_dataset = None, None, None
     if run.training_mode:

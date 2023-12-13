@@ -21,7 +21,7 @@ from tqdm import tqdm
 from conf import project as project_conf
 from src.base_trainer import BaseTrainer
 from utils import to_cuda
-from utils.training import visualize_model_predictions
+from utils.training import visualize_model_generations
 
 
 class BaseTester(BaseTrainer):
@@ -87,7 +87,7 @@ class BaseTester(BaseTrainer):
                     metrics[k].update(v.item())
                 " ==================== Visualization ==================== "
                 if visualize_every > 0 and (i + 1) % visualize_every == 0:
-                    visualize_model_predictions(
+                    visualize_model_generations(
                         self._model, batch, i, self._data_loader.dataset.denormalize
                     )  # User implementation goes here (utils/training.py)
                 self._pbar.update()

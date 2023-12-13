@@ -29,9 +29,11 @@ from unique_names_generator.data import ADJECTIVES, NAMES
 from dataset.celeba import CelebADataset
 from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
+from model.autoencoder import ImageAutoEncoderModel
 from model.diffusion_model import DiffusionModel, MLPBackboneModel
 from model.time_encoding import SinusoidalTimeEncoder
 from model.unet import UNetBackboneModelLarge, UNetBackboneModelSmall
+from src.ae_trainer import AETrainer
 from src.base_tester import BaseTester
 from src.base_trainer import BaseTrainer
 
@@ -149,6 +151,11 @@ model_store(
     name="diffusion_model",
 )
 
+model_store(
+    pbuilds(ImageAutoEncoderModel, input_shape=MISSING),
+    name="img_autoencoder",
+)
+
 backbone_store(
     pbuilds(
         UNetBackboneModelSmall,
@@ -255,6 +262,7 @@ run_store(RunConfig, name="default")
 
 trainer_store = store(group="trainer")
 trainer_store(pbuilds(BaseTrainer, populate_full_signature=True), name="base")
+trainer_store(pbuilds(AETrainer, populate_full_signature=True), name="ae_trainer")
 
 tester_store = store(group="tester")
 tester_store(pbuilds(BaseTester, populate_full_signature=True), name="base")
@@ -307,7 +315,7 @@ experiment_store(
         data_loader=dict(batch_size=128),
         bases=(Experiment,),
     ),
-    name="mnist",
+    name="diff_mnist",
 )
 
 experiment_store(
@@ -324,5 +332,38 @@ experiment_store(
         data_loader=dict(batch_size=64),
         bases=(Experiment,),
     ),
-    name="celeba",
+    name="diff_celeba",
+)
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "img_autoencoder"},
+            {"override /trainer": "ae_trainer"},
+            {"override /dataset": "mnist"},
+        ],
+        model=dict(input_shape=(28, 28, 1)),
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=128),
+        bases=(Experiment,),
+    ),
+    name="ae_mnist",
+)
+
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "img_autoencoder"},
+            {"override /trainer": "ae_trainer"},
+            {"override /dataset": "celeba"},
+        ],
+        model=dict(input_shape=(64, 64, 3)),
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=64),
+        bases=(Experiment,),
+    ),
+    name="ae_celeba",
 )

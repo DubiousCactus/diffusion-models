@@ -21,6 +21,7 @@ from hydra_zen.typing import Partial
 import conf.experiment  # Must import the config to add all components to the store!
 from conf import project as project_conf
 from model import TransparentDataParallel
+from model.diffusion_model import DiffusionModel
 from src.base_trainer import BaseTrainer
 from utils import colorize, to_cuda_
 
@@ -65,24 +66,25 @@ def launch_experiment(
     )
 
     "============ Partials instantiation ============"
-    time_encoder_inst = time_encoder(
-        model_dim=just(model).temporal_channels, time_steps=just(model).time_steps
-    )
-    backbone_inst = backbone(
-        input_shape=just(dataset).img_dim,
-        temporal_channels=just(model).temporal_channels,
-        time_encoder=time_encoder_inst,
-    )  # Use just() to get the config out of the Zen-Partial
-    print(backbone_inst)
-    model_inst = model(input_shape=just(dataset).img_dim, backbone=backbone_inst)
+    kwargs = {}
+    if isinstance(model, DiffusionModel):
+        time_encoder_inst = time_encoder(
+            model_dim=just(model).temporal_channels, time_steps=just(model).time_steps
+        )
+        backbone_inst = backbone(
+            input_shape=just(dataset).img_dim,
+            temporal_channels=just(model).temporal_channels,
+            time_encoder=time_encoder_inst,
+        )  # Use just() to get the config out of the Zen-Partial
+        kwargs = dict(backbone=backbone_inst)
+    model_inst = model(input_shape=just(dataset).img_dim, **kwargs)
     print(model_inst)
     print(
-        f"Number of parameters: "
-        + f"{sum(p.numel() for p in model_inst.parameters()) + sum(p.numel() for p in backbone_inst.parameters())}"
+        f"Number of parameters: " + f"{sum(p.numel() for p in model_inst.parameters())}"
     )
     print(
         f"Number of trainable parameters: "
-        + f"{sum(p.numel() for p in model_inst.parameters() if p.requires_grad) + sum(p.numel() for p in backbone_inst.parameters() if p.requires_grad)}"
+        + f"{sum(p.numel() for p in model_inst.parameters() if p.requires_grad)}"
     )
     train_dataset, val_dataset, test_dataset = None, None, None
     if run.training_mode:

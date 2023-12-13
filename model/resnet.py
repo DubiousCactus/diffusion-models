@@ -74,9 +74,7 @@ class ResidualBlock(torch.nn.Module):
             else torch.nn.Identity()
         )
 
-    def forward(
-        self, x: torch.Tensor, t_emb: torch.Tensor, debug: bool = False
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, debug: bool = False) -> torch.Tensor:
         def print_debug(str):
             nonlocal debug
             if debug:
@@ -88,8 +86,6 @@ class ResidualBlock(torch.nn.Module):
         print_debug(f"After conv1, x.shape = {x.shape}")
         x = self.norm1(x)
         x = self.nonlin(x)
-        print_debug(f"Temb is {t_emb.shape}")
-        print_debug(f"Temb projected is {self.temporal_projection(t_emb).shape}")
         x = self.conv2(x)
         print_debug(f"After conv2, x.shape = {x.shape}")
         # x = self.norm2(x)

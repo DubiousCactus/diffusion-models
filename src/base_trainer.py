@@ -25,7 +25,7 @@ from tqdm import tqdm
 from conf import project as project_conf
 from utils import blink_pbar, to_cuda, update_pbar_str
 from utils.helpers import BestNModelSaver
-from utils.training import visualize_model_predictions
+from utils.training import visualize_model_generations
 
 
 class BaseTrainer:
@@ -74,7 +74,7 @@ class BaseTrainer:
             batch: The batch to process.
             epoch: The current epoch.
         """
-        visualize_model_predictions(
+        visualize_model_generations(
             self._model, batch, epoch, self._val_loader.dataset.denormalize
         )  # User implementation goes here (utils/training.py)
 
@@ -95,7 +95,6 @@ class BaseTrainer:
         y_hat, y = self._model(x)
         loss, loss_components = torch.nn.functional.mse_loss(y_hat, y), {}
         return loss, loss_components
-        # raise NotImplementedError
 
     def _train_epoch(
         self, description: str, visualize: bool, epoch: int, last_val_loss: float

@@ -172,12 +172,12 @@ model_store(
 )
 
 model_store(
-    pbuilds(ImageAutoEncoderModel, input_shape=MISSING),
+    pbuilds(ImageAutoEncoderModel, input_shape=MISSING, populate_full_signature=True),
     name="img_autoencoder",
 )  # Can be part of the model store because we need to train it as one.
 
 autoencoder_store(
-    pbuilds(ImageAutoEncoderModel, input_shape=MISSING),
+    pbuilds(ImageAutoEncoderModel, input_shape=MISSING, populate_full_signature=True),
     name="img_autoencoder",
 )  # But is also part of the autoencoder store because we use it for the LDM.
 
@@ -426,8 +426,8 @@ experiment_store(
         ],
         autoencoder=dict(input_shape=(64, 64, 3)),
         backbone=dict(
-            input_shape=(8, 8, 32),
-            temporal_channels=128,
+            input_shape=(8, 8, 8),
+            temporal_channels=256,
             output_paddings=(1, 1, 1, 1),
         ),  # (16, 16, 256) is the latent feature map shape
         run=dict(epochs=1000, viz_every=10),

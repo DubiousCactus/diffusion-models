@@ -88,7 +88,7 @@ class ResidualBlock(torch.nn.Module):
         x = self.nonlin(x)
         x = self.conv2(x)
         print_debug(f"After conv2, x.shape = {x.shape}")
-        # x = self.norm2(x)
+        x = self.norm2(x)
         print_debug(
             f"Adding _x of shape {_x.shape} (rescaled to {self.residual_scaling(_x).shape}) to x of shape {x.shape}"
         )

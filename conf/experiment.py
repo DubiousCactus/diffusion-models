@@ -30,9 +30,15 @@ from dataset.celeba import CelebADataset
 from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
 from model.autoencoder import ImageAutoEncoderModel
-from model.diffusion_model import DiffusionModel, MLPBackboneModel
+from model.diffusion_model import DiffusionModel, LatentDiffusionModel
+from model.mlp import MLPBackboneModel
 from model.time_encoding import SinusoidalTimeEncoder
-from model.unet import UNetBackboneModelLarge, UNetBackboneModelSmall
+from model.unet import (
+    UNetBackboneModelLarge,
+    UNetBackboneModelMicro,
+    UNetBackboneModelMini,
+    UNetBackboneModelSmall,
+)
 from src.ae_trainer import AETrainer
 from src.base_tester import BaseTester
 from src.base_trainer import BaseTrainer
@@ -127,10 +133,19 @@ class TimeEncoderConf:
     model_dim: int
 
 
+@dataclass
+class DiffusionModelConf:
+    backbone: torch.nn.Module
+    time_steps: int = 1000
+    beta_1: float = 1e-4
+    beta_T: float = 0.02
+
+
 # Pre-set the group for store's model entries
 model_store = store(group="model")
 backbone_store = store(group="backbone")
 time_encoder_store = store(group="time_encoder")
+autoencoder_store = store(group="autoencoder")
 
 # Not that encoder_input_dim depend on dataset.img_dim, so we need to use a partial to set them in
 # the launch_experiment function.
@@ -141,20 +156,30 @@ model_store(
 model_store(
     pbuilds(
         DiffusionModel,
+        builds_bases=(DiffusionModelConf,),
         backbone=MISSING,
-        time_steps=1000,
-        beta_1=10e-4,
-        beta_T=0.02,
-        input_shape=MISSING,
-        temporal_channels=256,
     ),
     name="diffusion_model",
 )
 
 model_store(
+    pbuilds(
+        LatentDiffusionModel,
+        builds_bases=(DiffusionModelConf,),
+        backbone=MISSING,
+    ),
+    name="latent_diffusion_model",
+)
+
+model_store(
     pbuilds(ImageAutoEncoderModel, input_shape=MISSING),
     name="img_autoencoder",
-)
+)  # Can be part of the model store because we need to train it as one.
+
+autoencoder_store(
+    pbuilds(ImageAutoEncoderModel, input_shape=MISSING),
+    name="img_autoencoder",
+)  # But is also part of the autoencoder store because we use it for the LDM.
 
 backbone_store(
     pbuilds(
@@ -162,6 +187,22 @@ backbone_store(
         builds_bases=(BackboneConf,),
     ),
     name="unet_small",
+)
+
+backbone_store(
+    pbuilds(
+        UNetBackboneModelMini,
+        builds_bases=(BackboneConf,),
+    ),
+    name="unet_mini",
+)
+
+backbone_store(
+    pbuilds(
+        UNetBackboneModelMicro,
+        builds_bases=(BackboneConf,),
+    ),
+    name="unet_micro",
 )
 
 backbone_store(
@@ -253,6 +294,7 @@ class RunConfig:
     viz_train_every: int = 0
     viz_num_samples: int = 5
     load_from: Optional[str] = None
+    load_ae_from: Optional[str] = None
     training_mode: bool = True
 
 
@@ -278,6 +320,7 @@ Experiment = builds(
         {"model": "model_a"},
         {"backbone": "unet_small"},
         {"time_encoder": "sinusoidal"},
+        {"autoencoder": "img_autoencoder"},
         {"optimizer": "adam"},
         {"scheduler": "step"},
         {"run": "default"},
@@ -288,6 +331,7 @@ Experiment = builds(
     model=MISSING,
     backbone=MISSING,
     time_encoder=MISSING,
+    autoencoder=MISSING,
     optimizer=MISSING,
     scheduler=MISSING,
     run=MISSING,
@@ -309,8 +353,9 @@ experiment_store(
             {"override /backbone": "unet_small"},
             {"override /dataset": "mnist"},
         ],
-        model=dict(input_shape=(28, 28, 1), temporal_channels=512),
-        backbone=dict(output_paddings=(1, 0, 1, 1)),
+        backbone=dict(
+            input_shape=(28, 28, 1), temporal_channels=512, output_paddings=(1, 0, 1, 1)
+        ),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=128),
         bases=(Experiment,),
@@ -326,8 +371,9 @@ experiment_store(
             {"override /backbone": "unet_small"},
             {"override /dataset": "celeba"},
         ],
-        model=dict(input_shape=(64, 64, 3), temporal_channels=512),
-        backbone=dict(output_paddings=(1, 1, 1, 1)),
+        backbone=dict(
+            input_shape=(64, 64, 3), temporal_channels=512, output_paddings=(1, 1, 1, 1)
+        ),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=64),
         bases=(Experiment,),
@@ -343,7 +389,7 @@ experiment_store(
             {"override /trainer": "ae_trainer"},
             {"override /dataset": "mnist"},
         ],
-        model=dict(input_shape=(28, 28, 1)),
+        model=dict(input_shape=(28, 28, 1), output_paddings=(0, 1, 1)),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=128),
         bases=(Experiment,),
@@ -360,10 +406,56 @@ experiment_store(
             {"override /trainer": "ae_trainer"},
             {"override /dataset": "celeba"},
         ],
-        model=dict(input_shape=(64, 64, 3)),
+        model=dict(input_shape=(64, 64, 3), output_paddings=(1, 1, 1)),
         run=dict(epochs=1000, viz_every=10),
         data_loader=dict(batch_size=64),
         bases=(Experiment,),
     ),
     name="ae_celeba",
+)
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "latent_diffusion_model"},
+            {"override /trainer": "base"},
+            {"override /dataset": "celeba"},
+            {"override /backbone": "unet_mini"},
+            {"override /autoencoder": "img_autoencoder"},
+        ],
+        autoencoder=dict(input_shape=(64, 64, 3)),
+        backbone=dict(
+            input_shape=(8, 8, 32),
+            temporal_channels=128,
+            output_paddings=(1, 1, 1, 1),
+        ),  # (16, 16, 256) is the latent feature map shape
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=64),
+        bases=(Experiment,),
+    ),
+    name="ldm_celeba",
+)
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "latent_diffusion_model"},
+            {"override /trainer": "base"},
+            {"override /dataset": "mnist"},
+            {"override /backbone": "unet_micro"},
+            {"override /autoencoder": "img_autoencoder"},
+        ],
+        autoencoder=dict(input_shape=(28, 28, 1)),
+        backbone=dict(
+            input_shape=(4, 4, 8),
+            temporal_channels=128,
+            output_paddings=(1, 1, 1, 1),
+        ),  # (16, 16, 256) is the latent feature map shape
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=64),
+        bases=(Experiment,),
+    ),
+    name="ldm_mnist",
 )

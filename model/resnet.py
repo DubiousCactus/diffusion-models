@@ -160,24 +160,33 @@ class TemporalResidualBlock(torch.nn.Module):
             else torch.nn.Identity()
         )
 
-    def forward(self, x: torch.Tensor, t_emb: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, t_emb: torch.Tensor, debug: bool = False
+    ) -> torch.Tensor:
+        def print_debug(str):
+            nonlocal debug
+            if debug:
+                print(str)
+
         _x = x
         scale, shift = (
             self.temporal_projection(t_emb).unsqueeze(-1).unsqueeze(-1).chunk(2, dim=1)
         )
-        # print(f"Starting with x.shape = {x.shape}")
+        print_debug(f"Starting with x.shape = {x.shape}")
         x = self.conv1(x)
-        # print(f"After conv1, x.shape = {x.shape}")
+        print_debug(f"After conv1, x.shape = {x.shape}")
         x = self.norm1(x)
         x *= (scale + 1) + shift
         x = self.nonlin(x)
-        # print(f"Temb is {t_emb.shape}")
-        # print(f"Temb projected is {self.temporal_projection(t_emb).shape}")
+        print_debug(f"Temb is {t_emb.shape}")
+        print_debug(f"Temb projected is {self.temporal_projection(t_emb).shape}")
         x = self.conv2(x)
-        # print(f"After conv2, x.shape = {x.shape}")
-        # x = self.norm2(x)
+        print_debug(f"After conv2, x.shape = {x.shape}")
+        x = self.norm2(x)
         x *= (scale + 1) + shift
-        # print(f"Adding _x of shape {_x.shape} (rescaled to {self.residual_scaling(_x).shape}) to x of shape {x.shape}")
+        print_debug(
+            f"Adding _x of shape {_x.shape} (rescaled to {self.residual_scaling(_x).shape}) to x of shape {x.shape}"
+        )
         return self.out_activation(x + self.residual_scaling(_x))
 
 

@@ -268,3 +268,179 @@ class UNetBackboneModelSmall(UNetBackboneModel):
         x11 = self.up4(torch.cat((x10, x2), dim=1), t_embed)
         x12 = self.identity3(x11, t_embed)
         return self.out_conv(x12)
+
+
+class UNetBackboneModelMini(UNetBackboneModel):
+    def __init__(
+        self,
+        input_shape: Tuple[int],
+        time_encoder: torch.nn.Module,
+        temporal_channels: int,
+        normalization: str = "group",
+        output_paddings: Tuple = (1, 1, 1, 1),
+    ):
+        super().__init__(
+            input_shape, time_encoder, temporal_channels, normalization=normalization
+        )
+        self.time_embedder = torch.nn.Sequential(
+            torch.nn.Linear(temporal_channels, temporal_channels),
+            torch.nn.GELU(),
+            torch.nn.Linear(temporal_channels, temporal_channels),
+        )
+        self.identity1 = TemporalIdentityResidualBlock(
+            self.in_channels,
+            64,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.down1 = TemporalDownScaleResidualBlock(
+            64,
+            64,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.down2 = TemporalDownScaleResidualBlock(
+            64,
+            128,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.down3 = TemporalDownScaleResidualBlock(
+            128,
+            256,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.tunnel1 = TemporalIdentityResidualBlock(
+            256, 256, temporal_channels, normalization=normalization
+        )  # This is the middle 'bottleneck'
+        self.tunnel2 = TemporalIdentityResidualBlock(
+            256, 256, temporal_channels, normalization=normalization
+        )
+        self.up1 = TemporalUpScaleResidualBlock(
+            512,
+            128,
+            temporal_channels,
+            output_padding=output_paddings[0],
+            normalization=normalization,
+        )
+        self.up2 = TemporalUpScaleResidualBlock(
+            256,
+            64,
+            temporal_channels,
+            output_padding=output_paddings[1],
+            normalization=normalization,
+        )
+        self.up3 = TemporalUpScaleResidualBlock(
+            128,
+            32,
+            temporal_channels,
+            output_padding=output_paddings[2],
+            normalization=normalization,
+        )
+        self.identity3 = TemporalIdentityResidualBlock(
+            32,
+            16,
+            temporal_channels,
+            norm_groups=4,
+            normalization=normalization,
+        )
+        self.out_conv = torch.nn.Conv2d(16, self.in_channels, 1, padding=0, stride=1)
+
+    def forward_impl(self, x: torch.Tensor, t_embed: torch.Tensor) -> torch.Tensor:
+        x1 = self.identity1(x, t_embed)
+        x2 = self.down1(x1, t_embed)
+        x3 = self.down2(x2, t_embed)
+        x4 = self.down3(x3, t_embed)
+        x5 = self.tunnel1(x4, t_embed)
+        x6 = self.tunnel2(x5, t_embed)
+        # The output of the final downsampling layer is concatenated with the output of the final
+        # tunnel layer because they have the same shape H and W. Then we upscale those features and
+        # conctenate the upscaled features with the output of the previous downsampling layer, and
+        # so on.
+        x7 = self.up1(torch.cat((x6, x4), dim=1), t_embed)
+        x8 = self.up2(torch.cat((x7, x3), dim=1), t_embed)
+        x10 = self.up3(torch.cat((x8, x2), dim=1), t_embed)
+        x11 = self.identity3(x10, t_embed)
+        return self.out_conv(x11)
+
+
+class UNetBackboneModelMicro(UNetBackboneModel):
+    def __init__(
+        self,
+        input_shape: Tuple[int],
+        time_encoder: torch.nn.Module,
+        temporal_channels: int,
+        normalization: str = "group",
+        output_paddings: Tuple = (1, 1, 1, 1),
+    ):
+        super().__init__(
+            input_shape, time_encoder, temporal_channels, normalization=normalization
+        )
+        self.time_embedder = torch.nn.Sequential(
+            torch.nn.Linear(temporal_channels, temporal_channels),
+            torch.nn.GELU(),
+            torch.nn.Linear(temporal_channels, temporal_channels),
+        )
+        self.identity1 = TemporalIdentityResidualBlock(
+            self.in_channels,
+            128,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.down1 = TemporalDownScaleResidualBlock(
+            128,
+            128,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.down2 = TemporalDownScaleResidualBlock(
+            128,
+            256,
+            temporal_channels,
+            normalization=normalization,
+        )
+        self.tunnel1 = TemporalIdentityResidualBlock(
+            256, 256, temporal_channels, normalization=normalization
+        )  # This is the middle 'bottleneck'
+        self.tunnel2 = TemporalIdentityResidualBlock(
+            256, 256, temporal_channels, normalization=normalization
+        )
+        self.up1 = TemporalUpScaleResidualBlock(
+            512,
+            256,
+            temporal_channels,
+            output_padding=output_paddings[0],
+            normalization=normalization,
+        )
+        self.up2 = TemporalUpScaleResidualBlock(
+            384,
+            128,
+            temporal_channels,
+            output_padding=output_paddings[1],
+            normalization=normalization,
+        )
+        self.identity3 = TemporalIdentityResidualBlock(
+            128,
+            128,
+            temporal_channels,
+            norm_groups=4,
+            normalization=normalization,
+        )
+        self.out_conv = torch.nn.Conv2d(128, self.in_channels, 1, padding=0, stride=1)
+
+    def forward_impl(self, x: torch.Tensor, t_embed: torch.Tensor) -> torch.Tensor:
+        x1 = self.identity1(x, t_embed)
+        x2 = self.down1(x1, t_embed)
+        x3 = self.down2(x2, t_embed)
+        x4 = self.tunnel1(x3, t_embed)
+        x5 = self.tunnel2(x4, t_embed)
+        # The output of the final downsampling layer is concatenated with the output of the final
+        # tunnel layer because they have the same shape H and W. Then we upscale those features and
+        # conctenate the upscaled features with the output of the previous downsampling layer, and
+        # so on.
+        # print(f"Captain, we're in the tunnel! The shape is: {x5.shape}")
+        x6 = self.up1(torch.cat((x5, x3), dim=1), t_embed)
+        x7 = self.up2(torch.cat((x6, x2), dim=1), t_embed)
+        x8 = self.identity3(x7, t_embed)
+        return self.out_conv(x8)

@@ -21,7 +21,8 @@ from hydra_zen.typing import Partial
 import conf.experiment  # Must import the config to add all components to the store!
 from conf import project as project_conf
 from model import TransparentDataParallel
-from model.diffusion_model import DiffusionModel
+from model.autoencoder import ImageAutoEncoderModel
+from model.diffusion_model import DiffusionModel, LatentDiffusionModel
 from src.base_trainer import BaseTrainer
 from utils import colorize, to_cuda_
 
@@ -37,6 +38,7 @@ def launch_experiment(
     model: Partial[torch.nn.Module],
     backbone: Partial[torch.nn.Module],
     time_encoder: Partial[torch.nn.Module],
+    autoencoder: Partial[torch.nn.Module],
 ):
     run_name = os.path.basename(HydraConfig.get().runtime.output_dir)
     # Generate a random ANSI code:
@@ -67,17 +69,29 @@ def launch_experiment(
 
     "============ Partials instantiation ============"
     kwargs = {}
-    if isinstance(model, DiffusionModel):
+    if model.func is DiffusionModel or model.func is LatentDiffusionModel:
         time_encoder_inst = time_encoder(
-            model_dim=just(model).temporal_channels, time_steps=just(model).time_steps
+            model_dim=just(backbone).temporal_channels,
+            time_steps=just(model).time_steps,
         )
         backbone_inst = backbone(
-            input_shape=just(dataset).img_dim,
-            temporal_channels=just(model).temporal_channels,
+            # input_shape=just(dataset).img_dim,
             time_encoder=time_encoder_inst,
         )  # Use just() to get the config out of the Zen-Partial
-        kwargs = dict(backbone=backbone_inst)
-    model_inst = model(input_shape=just(dataset).img_dim, **kwargs)
+        kwargs["backbone"] = backbone_inst
+        if model.func is LatentDiffusionModel:
+            ae = autoencoder()  # This partial should probably not be one!
+            assert (
+                run.load_ae_from is not None
+            ), "Must provide a path to an AE checkpoint"
+            ae.load_state_dict(
+                torch.load(to_absolute_path(run.load_ae_from))["model_ckpt"]
+            )
+            kwargs["autoencoder"] = ae
+    elif model.func is ImageAutoEncoderModel:
+        kwargs["input_shape"] = just(dataset).img_dim
+
+    model_inst = model(**kwargs)
     print(model_inst)
     print(
         f"Number of parameters: " + f"{sum(p.numel() for p in model_inst.parameters())}"

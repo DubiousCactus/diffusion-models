@@ -22,24 +22,27 @@ from model.resnet import (
 
 
 class ImageAutoEncoderModel(torch.nn.Module):
-    def __init__(self, input_shape: Tuple[int]) -> None:
+    def __init__(
+        self, input_shape: Tuple[int], output_paddings: Tuple[int] = (1, 1, 1)
+    ) -> None:
         super().__init__()
         self._input_shape = input_shape
         self._input_channels = input_shape[-1]
         self.encoder = torch.nn.Sequential(
-            IdentityResidualBlock(self._input_channels, 64),
-            DownScaleResidualBlock(64, 128),
-            DownScaleResidualBlock(128, 256),
-            # DownScaleResidualBlock(256, 512),
-            # IdentityResidualBlock(512, 512),
-            IdentityResidualBlock(256, 256),
+            IdentityResidualBlock(self._input_channels, 8),
+            DownScaleResidualBlock(8, 16),
+            DownScaleResidualBlock(16, 32),
+            DownScaleResidualBlock(32, 32),
+            IdentityResidualBlock(32, 32),
+            torch.nn.Conv2d(32, 8, 1),
         )
         self.decoder = torch.nn.Sequential(
-            # UpScaleResidualBlock(512, 256, output_padding=0),
-            UpScaleResidualBlock(256, 128, output_padding=1),
-            UpScaleResidualBlock(128, 64, output_padding=1),
-            IdentityResidualBlock(64, 64),
-            torch.nn.Conv2d(64, self._input_channels, 1, padding=0),
+            torch.nn.Conv2d(8, 32, 1),
+            UpScaleResidualBlock(32, 32, output_padding=output_paddings[0]),
+            UpScaleResidualBlock(32, 16, output_padding=output_paddings[1]),
+            UpScaleResidualBlock(16, 8, output_padding=output_paddings[2]),
+            IdentityResidualBlock(8, 8),
+            torch.nn.Conv2d(8, self._input_channels, 1, padding=0),
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -53,6 +53,7 @@ def visualize_model_reconstructions(
     x, _ = to_cuda_(batch)  # type: ignore
     if not project_conf.HEADLESS:
         x_hat, latent_map = model(x)
+        x = denormalize(x)
         x_hat = denormalize(x_hat)
         # Clip to [0, 1]: (MatPlotLib does this automatically though)
         x_hat = torch.clamp(x_hat, 0, 1)

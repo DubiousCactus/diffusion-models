@@ -106,6 +106,7 @@ class DiffusionModel(torch.nn.Module):
                 / (torch.sqrt(1 - self.alpha[0]) * torch.sqrt(1 - self.beta[0]))
             ) * eps_hat
             pbar.update()
+            pbar.close()
             return x_hat.view(n, *self._input_shape)
 
 

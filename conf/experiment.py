@@ -31,7 +31,7 @@ from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
 from model.autoencoder import ImageAutoEncoderModel
 from model.diffusion_model import DiffusionModel, LatentDiffusionModel
-from model.mlp import MLPBackboneModel, MLPUNetBackboneModel
+from model.mlp import MLPBackboneModel, MLPResNetBackboneModel, MLPUNetBackboneModel
 from model.time_encoding import SinusoidalTimeEncoder
 from model.unet import (
     UNetBackboneModelLarge,
@@ -223,6 +223,28 @@ backbone_store(
     ),
     name="mlp_unet",
 )
+
+backbone_store(
+    pbuilds(
+        MLPBackboneModel,
+        input_shape=MISSING,
+        time_encoder=MISSING,
+        temporal_channels=256,
+    ),
+    name="mlp",
+)
+
+backbone_store(
+    pbuilds(
+        MLPResNetBackboneModel,
+        input_shape=MISSING,
+        time_encoder=MISSING,
+        temporal_channels=256,
+        hidden_dim=2048,
+    ),
+    name="mlp_resnet",
+)
+
 
 time_encoder_store(
     pbuilds(

@@ -13,6 +13,7 @@ Diffusion model and backbones.
 from typing import Tuple
 
 import torch
+from tqdm import tqdm
 
 
 class DiffusionModel(torch.nn.Module):
@@ -84,6 +85,7 @@ class DiffusionModel(torch.nn.Module):
         with torch.no_grad():
             device = next(self.parameters()).device
             z_current = torch.randn(n, *self._input_shape).to(device)
+            pbar = tqdm(total=self.time_steps, desc="GENERATING")
             for t in range(self.time_steps - 1, 0, -1):  # Reversed from T to 1
                 eps_hat = self.backbone(
                     z_current, torch.tensor(t).view(1, 1).repeat(n, 1).to(device)
@@ -94,6 +96,7 @@ class DiffusionModel(torch.nn.Module):
                 ) * eps_hat
                 eps = torch.randn_like(z_current)
                 z_current = z_prev_hat + eps * self.sigma[t]
+                pbar.update()
             # Now for z_0:
             eps_hat = self.backbone(
                 z_current, torch.tensor(0).view(1, 1).repeat(n, 1).to(device)
@@ -102,6 +105,7 @@ class DiffusionModel(torch.nn.Module):
                 self.beta[0]
                 / (torch.sqrt(1 - self.alpha[0]) * torch.sqrt(1 - self.beta[0]))
             ) * eps_hat
+            pbar.update()
             return x_hat.view(n, *self._input_shape)
 
 

@@ -31,7 +31,7 @@ from dataset.mnist import MNISTDataset
 from launch_experiment import launch_experiment
 from model.autoencoder import ImageAutoEncoderModel
 from model.diffusion_model import DiffusionModel, LatentDiffusionModel
-from model.mlp import MLPBackboneModel
+from model.mlp import MLPBackboneModel, MLPUNetBackboneModel
 from model.time_encoding import SinusoidalTimeEncoder
 from model.unet import (
     UNetBackboneModelLarge,
@@ -153,6 +153,7 @@ model_store(
     pbuilds(MLPBackboneModel, input_shape=MISSING),
     name="mlp_backend",
 )
+
 model_store(
     pbuilds(
         DiffusionModel,
@@ -211,6 +212,16 @@ backbone_store(
         builds_bases=(BackboneConf,),
     ),
     name="unet_large",
+)
+
+backbone_store(
+    pbuilds(
+        MLPUNetBackboneModel,
+        input_shape=MISSING,
+        time_encoder=MISSING,
+        temporal_channels=256,
+    ),
+    name="mlp_unet",
 )
 
 time_encoder_store(
@@ -458,4 +469,21 @@ experiment_store(
         bases=(Experiment,),
     ),
     name="ldm_mnist",
+)
+
+
+experiment_store(
+    make_config(
+        hydra_defaults=[
+            "_self_",
+            {"override /model": "diffusion_model"},
+            {"override /backbone": "mlp_unet"},
+            {"override /dataset": "mnist"},
+        ],
+        backbone=dict(input_shape=(28, 28, 1), temporal_channels=256),
+        run=dict(epochs=1000, viz_every=10),
+        data_loader=dict(batch_size=128),
+        bases=(Experiment,),
+    ),
+    name="diff_mnist_mlp",
 )

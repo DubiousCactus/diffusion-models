@@ -176,14 +176,14 @@ class TemporalResidualBlock(torch.nn.Module):
         x = self.conv1(x)
         print_debug(f"After conv1, x.shape = {x.shape}")
         x = self.norm1(x)
-        x *= (scale + 1) + shift
+        x = x * (scale + 1) + shift
         x = self.nonlin(x)
         print_debug(f"Temb is {t_emb.shape}")
         print_debug(f"Temb projected is {self.temporal_projection(t_emb).shape}")
         x = self.conv2(x)
         print_debug(f"After conv2, x.shape = {x.shape}")
         x = self.norm2(x)
-        x *= (scale + 1) + shift
+        x = x * (scale + 1) + shift
         print_debug(
             f"Adding _x of shape {_x.shape} (rescaled to {self.residual_scaling(_x).shape}) to x of shape {x.shape}"
         )
@@ -305,3 +305,75 @@ class UpScaleResidualBlock(ResidualBlock):
             output_padding=output_padding,
             conv=torch.nn.ConvTranspose2d,
         )
+
+
+class TemporalResidualBlock1D(torch.nn.Module):
+    def __init__(
+        self,
+        dim_in: int,
+        dim_out: int,
+        temporal_dim: int,
+        normalization: str = "layer",
+    ):
+        super().__init__()
+        self.lin1 = torch.nn.Linear(
+            dim_in,
+            dim_out,
+        )
+        self.norm1 = (
+            torch.nn.LayerNorm(dim_out)
+            if normalization == "layer"
+            else torch.nn.BatchNorm1d(dim_out)
+        )
+        self.nonlin = torch.nn.GELU()
+        self.lin2 = torch.nn.Linear(
+            dim_out,
+            dim_out,
+        )
+        self.norm2 = (
+            torch.nn.LayerNorm(dim_out)
+            if normalization == "layer"
+            else torch.nn.BatchNorm1d(dim_out)
+        )
+        self.out_activation = torch.nn.GELU()
+        self.temporal_projection = torch.nn.Linear(
+            temporal_dim,
+            dim_out * 2,
+        )
+        self.residual_scaling = (
+            torch.nn.Linear(
+                dim_in,
+                dim_out,
+                bias=False,
+            )
+            if (dim_in != dim_out)
+            else torch.nn.Identity()
+        )
+
+    def forward(
+        self, x: torch.Tensor, t_emb: torch.Tensor, debug: bool = False
+    ) -> torch.Tensor:
+        def print_debug(str):
+            nonlocal debug
+            if debug:
+                print(str)
+
+        _x = x
+        scale, shift = self.temporal_projection(t_emb).chunk(2, dim=1)
+        print_debug(f"Starting with x.shape = {x.shape}")
+        print_debug(f"scale and shift shapes: {scale.shape}, {shift.shape}")
+        x = self.lin1(x)
+        print_debug(f"After lin1, x.shape = {x.shape}")
+        x = self.norm1(x)
+        x = x * (scale + 1) + shift
+        x = self.nonlin(x)
+        print_debug(f"Temb is {t_emb.shape}")
+        print_debug(f"Temb projected is {self.temporal_projection(t_emb).shape}")
+        x = self.lin2(x)
+        print_debug(f"After lin2, x.shape = {x.shape}")
+        x = self.norm2(x)
+        x = x * (scale + 1) + shift
+        print_debug(
+            f"Adding _x of shape {_x.shape} (rescaled to {self.residual_scaling(_x).shape}) to x of shape {x.shape}"
+        )
+        return self.out_activation(x + self.residual_scaling(_x))
